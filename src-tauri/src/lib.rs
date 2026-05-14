@@ -114,7 +114,6 @@ pub fn run() {
                 .visible(false)
                 .build()?;
             protection::apply(&settings_win);
-
             // System Tray
             tray::setup_tray(app.handle())?;
 
