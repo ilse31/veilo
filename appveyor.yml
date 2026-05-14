@@ -1,0 +1,33 @@
+image: Visual Studio 2022
+
+environment:
+  RUSTUP_HOME: C:\Users\appveyor\.rustup
+  CARGO_HOME: C:\Users\appveyor\.cargo
+
+install:
+  # Install Node.js 20
+  - ps: Install-Product node 20 x64
+  # Install Rust MSVC toolchain
+  - appveyor-retry appveyor DownloadFile https://win.rustup.rs/x86_64 -FileName rustup-init.exe
+  - rustup-init.exe -y --default-toolchain stable --target x86_64-pc-windows-msvc
+  - set PATH=%CARGO_HOME%\bin;%PATH%
+  - rustup target add x86_64-pc-windows-msvc
+  # Install frontend deps
+  - npm ci
+
+build_script:
+  - npm run tauri build -- --target x86_64-pc-windows-msvc
+
+artifacts:
+  - path: src-tauri\target\x86_64-pc-windows-msvc\release\bundle\nsis\*.exe
+    name: noscreen-setup-windows-x64
+  - path: src-tauri\target\x86_64-pc-windows-msvc\release\bundle\msi\*.msi
+    name: noscreen-installer-windows-x64
+
+# Only build on tags (v*) or manual trigger
+branches:
+  only:
+    - master
+
+# Uncomment below to build only on tags:
+# skip_non_tags: true
