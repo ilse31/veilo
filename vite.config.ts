@@ -1,16 +1,11 @@
-import { defineConfig } from 'vite'
+import { defineConfig } from 'vitest/config'
 import { sveltekit } from '@sveltejs/kit/vite'
 import { resolve } from 'path'
 
-// @ts-expect-error process is a nodejs global
 const host = process.env.TAURI_DEV_HOST;
 
 export default defineConfig({
   plugins: [sveltekit()],
-
-  resolve: {
-    alias: { '$lib': resolve(__dirname, './src/lib') },
-  },
 
   build: {
     rollupOptions: {

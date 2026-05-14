@@ -1,5 +1,4 @@
 <script lang="ts">
-  import '../app.css'
   import ControlBar from '$lib/components/ControlBar.svelte'
 </script>
 <div class="flex items-center justify-center w-full h-full">

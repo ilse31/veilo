@@ -1,5 +1,4 @@
 <script lang="ts">
-  import '../app.css'
   import Settings from '$lib/components/Settings.svelte'
 </script>
 <Settings />
