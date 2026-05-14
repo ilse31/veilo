@@ -3,6 +3,7 @@ image: Visual Studio 2022
 environment:
   RUSTUP_HOME: C:\Users\appveyor\.rustup
   CARGO_HOME: C:\Users\appveyor\.cargo
+  CI: "true"
 
 install:
   # Install Node.js 20
