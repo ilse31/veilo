@@ -42,12 +42,15 @@
 
   <div class="mb-5">
     <p class="text-xs text-gray-400 mb-2 uppercase tracking-wide">AI Site</p>
-    <div class="flex gap-4">
+    <div class="flex flex-wrap gap-4">
       <label class="flex items-center gap-2 cursor-pointer text-sm">
         <input type="radio" bind:group={form.site} value="https://claude.ai" class="accent-blue-500" /> Claude.ai
       </label>
       <label class="flex items-center gap-2 cursor-pointer text-sm">
         <input type="radio" bind:group={form.site} value="https://chatgpt.com" class="accent-blue-500" /> ChatGPT
+      </label>
+      <label class="flex items-center gap-2 cursor-pointer text-sm">
+        <input type="radio" bind:group={form.site} value="https://translate.google.com" class="accent-blue-500" /> Google Translate
       </label>
     </div>
   </div>

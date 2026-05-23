@@ -1,6 +1,7 @@
 mod commands;
 mod config;
 mod protection;
+mod stt;
 mod tray;
 
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
@@ -38,14 +39,33 @@ const INJECT_BOOTSTRAP: &str = r#"
 
   // --- noscreen text injection ---
   window.__noscreen_inject = function(text) {
+    // Try AI chat selectors first, then fall back to any textarea
     var el = document.querySelector('div[contenteditable="true"]')
-           || document.querySelector('#prompt-textarea');
+           || document.querySelector('#prompt-textarea')
+           || document.querySelector('textarea');
     if (!el) { console.warn('[noscreen] input element not found'); return; }
+
     el.focus();
-    document.execCommand('insertText', false, text);
-    el.dispatchEvent(new KeyboardEvent('keydown', {
-      key: 'Enter', code: 'Enter', bubbles: true, cancelable: true
-    }));
+    el.click();
+
+    // execCommand works for both contenteditable and textarea in WebView2/Chrome
+    var inserted = document.execCommand('insertText', false, text);
+
+    // Fallback for textarea if execCommand didn't work
+    if (!inserted && (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT')) {
+      var nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
+      nativeSetter.call(el, el.value + text);
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+
+    // Press Enter only for AI chat sites (not Google Translate which auto-translates)
+    var isAiChat = location.hostname.includes('claude.ai') || location.hostname.includes('chatgpt.com');
+    if (isAiChat) {
+      el.dispatchEvent(new KeyboardEvent('keydown', {
+        key: 'Enter', code: 'Enter', bubbles: true, cancelable: true
+      }));
+    }
   };
 })();
 "#;
@@ -58,6 +78,7 @@ pub fn run() {
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             Some(vec![]),
         ))
+        .manage(commands::SttState(std::sync::Mutex::new(None)))
         .setup(|app| {
             let app_data_dir = app.path().app_data_dir()?;
             let cfg = config::read_config(&app_data_dir);
@@ -137,6 +158,8 @@ pub fn run() {
             commands::set_site,
             commands::toggle_visibility_cmd,
             commands::open_settings_cmd,
+            commands::start_stt_cmd,
+            commands::stop_stt_cmd,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

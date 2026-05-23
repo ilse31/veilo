@@ -41,3 +41,12 @@ export async function toggleVisibility(): Promise<void> {
 export async function openSettings(): Promise<void> {
   return invoke('open_settings_cmd')
 }
+
+export async function startStt(): Promise<void> {
+  return invoke('start_stt_cmd')
+}
+
+export async function stopStt(): Promise<void> {
+  return invoke('stop_stt_cmd')
+}
+

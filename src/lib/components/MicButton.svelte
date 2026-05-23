@@ -5,9 +5,19 @@
 
   let recognition: any = null
 
-  function startListening() {
+  async function startListening() {
     const SR = (window as any).SpeechRecognition ?? (window as any).webkitSpeechRecognition
     if (!SR) {
+      speechState.set('error')
+      setTimeout(() => speechState.set('idle'), 2000)
+      return
+    }
+
+    // Explicitly request microphone permission so WebView2 shows the dialog
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      stream.getTracks().forEach(t => t.stop())
+    } catch {
       speechState.set('error')
       setTimeout(() => speechState.set('idle'), 2000)
       return

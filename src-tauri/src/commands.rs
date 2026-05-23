@@ -1,5 +1,32 @@
 use crate::config::{read_config, write_config, Config};
+use crate::stt::{start_stt, SttHandle};
+use std::sync::Mutex;
 use tauri::{AppHandle, Manager};
+
+pub struct SttState(pub Mutex<Option<SttHandle>>);
+
+#[tauri::command]
+pub fn start_stt_cmd(
+    app: AppHandle,
+    state: tauri::State<SttState>,
+) -> Result<(), String> {
+    let mut guard = state.0.lock().map_err(|e| e.to_string())?;
+    if guard.is_some() {
+        return Ok(());
+    }
+    let handle = start_stt(app.clone())?;
+    *guard = Some(handle);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn stop_stt_cmd(state: tauri::State<SttState>) -> Result<(), String> {
+    let mut guard = state.0.lock().map_err(|e| e.to_string())?;
+    if let Some(handle) = guard.take() {
+        handle.stop();
+    }
+    Ok(())
+}
 
 /// Inject transcribed text into the AI webview via the bootstrap JS function.
 #[tauri::command]
