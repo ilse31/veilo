@@ -115,7 +115,7 @@ pub fn run() {
                 .always_on_top(true)
                 .content_protected(true)
                 .skip_taskbar(true)
-                .inner_size(280.0, 48.0)
+                .inner_size(360.0, 108.0)
                 .resizable(false)
                 .build()?;
             protection::apply(&control_bar);
