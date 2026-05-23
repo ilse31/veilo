@@ -23,7 +23,7 @@ fn apply_windows(window: &WebviewWindow) {
         if let RawWindowHandle::Win32(h) = handle.as_raw() {
             unsafe {
                 let _ = SetWindowDisplayAffinity(
-                    HWND(h.hwnd.get() as isize),
+                    HWND(h.hwnd.get() as *mut core::ffi::c_void),
                     WDA_EXCLUDEFROMCAPTURE,
                 );
             }
