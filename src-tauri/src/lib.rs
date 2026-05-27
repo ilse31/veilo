@@ -1,12 +1,13 @@
 mod commands;
 mod config;
+mod db;
 mod protection;
 mod stt;
 mod tray;
 
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 
-const INJECT_BOOTSTRAP: &str = r#"
+pub const INJECT_BOOTSTRAP: &str = r#"
 (function() {
   // --- Anti-bot fingerprint patch (runs before page scripts) ---
 
@@ -81,50 +82,41 @@ pub fn run() {
         .manage(commands::SttState(std::sync::Mutex::new(None)))
         .setup(|app| {
             let app_data_dir = app.path().app_data_dir()?;
+            let profile_db = db::open(&app_data_dir).map_err(|e| {
+                std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
+            })?;
+            app.manage(profile_db);
             let cfg = config::read_config(&app_data_dir);
             let hotkey = cfg.hotkey.clone();
 
-            // Window 1: AI WebView
-            let ai_url: tauri::Url = cfg.site.parse()?;
+            // Window 1: Hub (main app UI)
+            let hub_url = if cfg!(debug_assertions) {
+                WebviewUrl::External("http://localhost:1420".parse()?)
+            } else {
+                WebviewUrl::App("index.html".into())
+            };
             let ai_view = WebviewWindowBuilder::new(
                 app,
                 "ai-view",
-                WebviewUrl::External(ai_url),
+                hub_url,
             )
-            .title("noscreen")
+            .title("no‑screen")
             .decorations(false)
             .always_on_top(true)
             .content_protected(true)
             .skip_taskbar(true)
-            .inner_size(420.0, 700.0)
-            .initialization_script(INJECT_BOOTSTRAP)
-            .user_agent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
+            .inner_size(1200.0, 820.0)
+            .min_inner_size(900.0, 600.0)
+            .center()
+            .resizable(true)
             .build()?;
             protection::apply(&ai_view);
 
-            // Window 2: Control Bar
-            let control_url = if cfg!(debug_assertions) {
-                WebviewUrl::External("http://localhost:1420/control-bar".parse()?)
-            } else {
-                WebviewUrl::App("control-bar/index.html".into())
-            };
-            // NOTE: .transparent(true) requires the `macos-private-api` Cargo feature on macOS.
-            // Omitted until that feature is enabled; add it back along with the feature flag.
-            let control_bar = WebviewWindowBuilder::new(app, "control-bar", control_url)
-                .decorations(false)
-                .always_on_top(true)
-                .content_protected(true)
-                .skip_taskbar(true)
-                .inner_size(360.0, 108.0)
-                .resizable(false)
-                .build()?;
-            protection::apply(&control_bar);
-
-            // Window 3: Settings
+            // Window 2: Settings
             let settings_url = if cfg!(debug_assertions) {
                 WebviewUrl::External("http://localhost:1420/settings".parse()?)
             } else {
-                WebviewUrl::App("settings/index.html".into())
+                WebviewUrl::App("index.html".into())
             };
             let settings_win = WebviewWindowBuilder::new(app, "settings", settings_url)
                 .title("noscreen — Settings")
@@ -135,6 +127,29 @@ pub fn run() {
                 .visible(false)
                 .build()?;
             protection::apply(&settings_win);
+
+            // Service windows (pre-created hidden; shown/repositioned on demand)
+            for (service, url_str) in [
+                ("gpt",       "https://chatgpt.com"),
+                ("claude",    "https://claude.ai"),
+                ("translate", "https://translate.google.com"),
+            ] {
+                let label = format!("svc-{service}");
+                let parsed: url::Url = url_str.parse().expect("valid service URL");
+                let svc = WebviewWindowBuilder::new(app, &label, WebviewUrl::External(parsed))
+                    .decorations(false)
+                    .always_on_top(true)
+                    .skip_taskbar(true)
+                    .content_protected(true)
+                    .inner_size(800.0, 600.0)
+                    .position(0.0, 0.0)
+                    .visible(false)
+                    .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
+                    .initialization_script(INJECT_BOOTSTRAP)
+                    .build()?;
+                protection::apply(&svc);
+            }
+
             // System Tray
             tray::setup_tray(app.handle())?;
 
@@ -160,6 +175,19 @@ pub fn run() {
             commands::open_settings_cmd,
             commands::start_stt_cmd,
             commands::stop_stt_cmd,
+            commands::open_service_webview,
+            commands::hide_service_webview,
+            commands::resize_service_webview,
+            commands::set_all_content_protected,
+            commands::inject_to_service,
+            commands::get_profile_name,
+            commands::set_profile_name,
+            commands::list_conversations,
+            commands::create_conversation,
+            commands::update_conversation_title,
+            commands::delete_conversation,
+            commands::get_messages,
+            commands::append_message,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

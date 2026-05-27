@@ -1,7 +1,7 @@
 use crate::config::{read_config, write_config, Config};
 use crate::stt::{start_stt, SttHandle};
 use std::sync::Mutex;
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, LogicalPosition, LogicalSize, Manager};
 
 pub struct SttState(pub Mutex<Option<SttHandle>>);
 
@@ -45,14 +45,38 @@ pub fn inject_text(app: AppHandle, text: String) -> Result<(), String> {
 }
 
 /// Show or hide both ai-view and control-bar windows together.
+///
+/// A minimized window still reports is_visible() = true on Windows,
+/// so we treat "visible AND not minimized" as the "showing" state.
 pub fn toggle_visibility(app: AppHandle) {
-    for label in ["ai-view", "control-bar"] {
-        if let Some(w) = app.get_webview_window(label) {
-            if w.is_visible().unwrap_or(false) {
+    let hub = app.get_webview_window("ai-view");
+
+    let is_visible = hub.as_ref()
+        .and_then(|w| w.is_visible().ok())
+        .unwrap_or(false);
+    let is_minimized = hub.as_ref()
+        .and_then(|w| w.is_minimized().ok())
+        .unwrap_or(false);
+
+    // "Shown" means visible AND not minimised
+    let currently_shown = is_visible && !is_minimized;
+
+    if let Some(w) = app.get_webview_window("ai-view") {
+        if currently_shown {
+            let _ = w.hide();
+        } else {
+            let _ = w.unminimize();
+            let _ = w.show();
+            let _ = w.set_focus();
+        }
+    }
+
+    // Hide service windows when hiding the hub
+    if currently_shown {
+        for service in ["gpt", "claude", "translate"] {
+            let label = format!("svc-{service}");
+            if let Some(w) = app.get_webview_window(&label) {
                 let _ = w.hide();
-            } else {
-                let _ = w.show();
-                let _ = w.set_focus();
             }
         }
     }
@@ -106,6 +130,181 @@ pub fn set_site(app: AppHandle, site: String) -> Result<(), String> {
     window
         .eval(&format!("window.location.href = '{}'", parsed.as_str().replace('\'', "\\'")))
         .map_err(|e| e.to_string())
+}
+
+/// Compute the hub window's logical origin on screen (physical position ÷ scale factor).
+fn hub_logical_origin(app: &AppHandle) -> Result<(f64, f64), String> {
+    let hub = app
+        .get_webview_window("ai-view")
+        .ok_or_else(|| "hub window not found".to_string())?;
+    let phys = hub.outer_position().map_err(|e| e.to_string())?;
+    let scale = hub.scale_factor().map_err(|e| e.to_string())?;
+    Ok((phys.x as f64 / scale, phys.y as f64 / scale))
+}
+
+/// Open (or show + reposition) a service webview.
+///
+/// x/y are content-area-relative logical coords (from getBoundingClientRect in the hub).
+/// Service windows are pre-created hidden at startup (lib.rs).
+/// This command simply repositions and shows the already-initialized window.
+#[tauri::command]
+pub fn open_service_webview(
+    app: AppHandle,
+    service: String,
+    _url: String,
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+) -> Result<(), String> {
+    let label = format!("svc-{service}");
+
+    let (hub_lx, hub_ly) = hub_logical_origin(&app)?;
+    let screen_x = hub_lx + x;
+    let screen_y = hub_ly + y;
+    eprintln!("[svc] show: service={service} screen=({screen_x},{screen_y}) size=({width}×{height})");
+
+    let win = app
+        .get_webview_window(&label)
+        .ok_or_else(|| format!("'{label}' not found — was it pre-created at startup?"))?;
+
+    win.set_position(LogicalPosition::new(screen_x, screen_y)).map_err(|e| e.to_string())?;
+    win.set_size(LogicalSize::new(width, height)).map_err(|e| e.to_string())?;
+    win.show().map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+/// Hide a service window (keeps it alive for fast re-show).
+#[tauri::command]
+pub fn hide_service_webview(app: AppHandle, service: String) -> Result<(), String> {
+    let label = format!("svc-{service}");
+    if let Some(w) = app.get_webview_window(&label) {
+        w.hide().map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+/// Enable or disable content protection on every app window at runtime.
+///
+/// protected = true  → hidden from all screen capture / recording tools (default)
+/// protected = false → visible in screenshots and screen sharing
+#[tauri::command]
+pub fn set_all_content_protected(app: AppHandle, protected: bool) -> Result<(), String> {
+    for label in ["ai-view", "settings"] {
+        if let Some(w) = app.get_webview_window(label) {
+            w.set_content_protected(protected).map_err(|e| e.to_string())?;
+        }
+    }
+    for service in ["gpt", "claude", "translate"] {
+        let label = format!("svc-{service}");
+        if let Some(w) = app.get_webview_window(&label) {
+            w.set_content_protected(protected).map_err(|e| e.to_string())?;
+        }
+    }
+    Ok(())
+}
+
+/// Reposition and resize a service window (e.g. on hub window resize or move).
+#[tauri::command]
+pub fn resize_service_webview(
+    app: AppHandle,
+    service: String,
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+) -> Result<(), String> {
+    let label = format!("svc-{service}");
+
+    let (hub_lx, hub_ly) = hub_logical_origin(&app)?;
+    let screen_x = hub_lx + x;
+    let screen_y = hub_ly + y;
+
+    if let Some(w) = app.get_webview_window(&label) {
+        w.set_position(LogicalPosition::new(screen_x, screen_y))
+            .map_err(|e| e.to_string())?;
+        w.set_size(LogicalSize::new(width, height))
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+/// Inject text into a service webview (svc-gpt, svc-claude, svc-translate).
+/// Uses a JS retry loop so it works even if the page is still loading.
+#[tauri::command]
+pub fn inject_to_service(app: AppHandle, service: String, text: String) -> Result<(), String> {
+    let label = format!("svc-{service}");
+    let win = app
+        .get_webview_window(&label)
+        .ok_or_else(|| format!("'{label}' not found"))?;
+
+    let escaped = text
+        .replace('\\', "\\\\")
+        .replace('\'', "\\'")
+        .replace('\n', "\\n")
+        .replace('\r', "\\r");
+
+    // Retry up to 15× with 300 ms gaps (4.5 s total) to handle pages still loading
+    let script = format!(
+        r#"(function tryInject(t, n) {{
+            if (typeof window.__noscreen_inject === 'function') {{
+                window.__noscreen_inject(t);
+            }} else if (n > 0) {{
+                setTimeout(function() {{ tryInject(t, n - 1); }}, 300);
+            }}
+        }})('{escaped}', 15);"#
+    );
+
+    win.eval(&script).map_err(|e| e.to_string())
+}
+
+/// Read the user's display name from the SQLite profile database.
+#[tauri::command]
+pub fn get_profile_name(db: tauri::State<crate::db::Db>) -> Option<String> {
+    crate::db::get_value(&db, "name").unwrap_or(None)
+}
+
+/// Write (upsert) the user's display name to the SQLite profile database.
+#[tauri::command]
+pub fn set_profile_name(db: tauri::State<crate::db::Db>, name: String) -> Result<(), String> {
+    crate::db::set_value(&db, "name", &name).map_err(|e| e.to_string())
+}
+
+/// List all conversations, newest first.
+#[tauri::command]
+pub fn list_conversations(db: tauri::State<crate::db::Db>) -> Result<Vec<crate::db::ConvRow>, String> {
+    crate::db::list_conversations(&db).map_err(|e| e.to_string())
+}
+
+/// Create a new conversation and return its id.
+#[tauri::command]
+pub fn create_conversation(db: tauri::State<crate::db::Db>, title: String) -> Result<i64, String> {
+    crate::db::create_conversation(&db, &title).map_err(|e| e.to_string())
+}
+
+/// Rename a conversation.
+#[tauri::command]
+pub fn update_conversation_title(db: tauri::State<crate::db::Db>, conv_id: i64, title: String) -> Result<(), String> {
+    crate::db::update_conversation_title(&db, conv_id, &title).map_err(|e| e.to_string())
+}
+
+/// Delete a conversation and all its messages.
+#[tauri::command]
+pub fn delete_conversation(db: tauri::State<crate::db::Db>, conv_id: i64) -> Result<(), String> {
+    crate::db::delete_conversation(&db, conv_id).map_err(|e| e.to_string())
+}
+
+/// Load all messages for a conversation.
+#[tauri::command]
+pub fn get_messages(db: tauri::State<crate::db::Db>, conv_id: i64) -> Result<Vec<crate::db::MsgRow>, String> {
+    crate::db::get_messages(&db, conv_id).map_err(|e| e.to_string())
+}
+
+/// Append a message to a conversation.
+#[tauri::command]
+pub fn append_message(db: tauri::State<crate::db::Db>, conv_id: i64, role: String, body: String) -> Result<(), String> {
+    crate::db::append_message(&db, conv_id, &role, &body).map_err(|e| e.to_string())
 }
 
 #[cfg(test)]
