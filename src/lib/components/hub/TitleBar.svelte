@@ -24,7 +24,7 @@
   async function close()          { await win.close() }
 </script>
 
-<div class="hub-titlebar">
+<div class="hub-titlebar" data-tauri-drag-region>
   {#if platform === 'mac'}
     <!-- macOS: traffic lights (close / minimise / maximise) -->
     <div class="lights">
@@ -43,7 +43,7 @@
     </div>
   {/if}
 
-  <div class="title-center">{title}</div>
+  <div class="title-center" data-tauri-drag-region>{title}</div>
 
   {#if platform === 'win'}
     <!-- Windows: controls on the right -->
@@ -73,7 +73,7 @@
       </button>
     </div>
   {:else}
-    <div style="width:60px"></div>
+    <div style="width:60px" data-tauri-drag-region></div>
   {/if}
 </div>
 
@@ -91,5 +91,6 @@
     flex: 1; text-align: center;
     font-size: 12px; font-weight: 500; color: var(--text-soft);
     letter-spacing: 0.01em;
+    -webkit-app-region: drag;
   }
 </style>

@@ -20,7 +20,7 @@
 </script>
 
 <aside class="hub-sidebar">
-  <div class="titlebar-spacer"></div>
+  <div class="titlebar-spacer" data-tauri-drag-region></div>
 
   <div class="hub-brand">
     <div class="hub-brand-logo">N</div>
@@ -102,6 +102,7 @@
     height: 36px; flex-shrink: 0;
     border-bottom: 1px solid var(--border);
     background: var(--bg-side);
+    -webkit-app-region: drag;
   }
   .spacer { flex: 1; }
 </style>
