@@ -1,7 +1,7 @@
 use crate::config::{read_config, write_config, Config};
 use crate::stt::{start_stt, SttHandle};
 use std::sync::Mutex;
-use tauri::{AppHandle, LogicalPosition, LogicalSize, Manager};
+use tauri::{AppHandle, Emitter, LogicalPosition, LogicalSize, Manager};
 
 pub struct SttState(pub Mutex<Option<SttHandle>>);
 
@@ -49,36 +49,28 @@ pub fn inject_text(app: AppHandle, text: String) -> Result<(), String> {
 /// A minimized window still reports is_visible() = true on Windows,
 /// so we treat "visible AND not minimized" as the "showing" state.
 pub fn toggle_visibility(app: AppHandle) {
-    let hub = app.get_webview_window("ai-view");
+    let hub = match app.get_webview_window("ai-view") {
+        Some(w) => w,
+        None => return,
+    };
 
-    let is_visible = hub.as_ref()
-        .and_then(|w| w.is_visible().ok())
-        .unwrap_or(false);
-    let is_minimized = hub.as_ref()
-        .and_then(|w| w.is_minimized().ok())
-        .unwrap_or(false);
+    // Use OS-level check because we show via SW_SHOWNOACTIVATE which bypasses
+    // Tauri's internal visible flag — is_visible() would wrongly return false.
+    let currently_shown = crate::protection::is_os_visible(&hub);
 
-    // "Shown" means visible AND not minimised
-    let currently_shown = is_visible && !is_minimized;
-
-    if let Some(w) = app.get_webview_window("ai-view") {
-        if currently_shown {
-            let _ = w.hide();
-        } else {
-            let _ = w.unminimize();
-            let _ = w.show();
-            let _ = w.set_focus();
-        }
-    }
-
-    // Hide service windows when hiding the hub
     if currently_shown {
+        let _ = hub.set_ignore_cursor_events(false);
+        // Use Win32 directly — Tauri's hide() is a no-op when Tauri's internal
+        // visible flag is already false (which happens after show_no_activate).
+        crate::protection::hide_window(&hub);
         for service in ["gpt", "claude", "translate"] {
-            let label = format!("svc-{service}");
-            if let Some(w) = app.get_webview_window(&label) {
-                let _ = w.hide();
+            if let Some(w) = app.get_webview_window(&format!("svc-{service}")) {
+                crate::protection::hide_window(&w);
             }
         }
+    } else {
+        // SW_SHOWNOACTIVATE: shows without stealing foreground → browser never blurs.
+        crate::protection::show_no_activate(&hub);
     }
 }
 
@@ -305,6 +297,65 @@ pub fn get_messages(db: tauri::State<crate::db::Db>, conv_id: i64) -> Result<Vec
 #[tauri::command]
 pub fn append_message(db: tauri::State<crate::db::Db>, conv_id: i64, role: String, body: String) -> Result<(), String> {
     crate::db::append_message(&db, conv_id, &role, &body).map_err(|e| e.to_string())
+}
+
+/// Toggle ghost typing mode — called by the Ctrl+Alt+G global shortcut.
+/// Applies WS_EX_NOACTIVATE so the hub never steals focus, then starts
+/// the low-level keyboard hook that intercepts all keystrokes.
+pub fn toggle_ghost_typing(app: AppHandle) {
+    if crate::ghost_typing::is_active() {
+        crate::ghost_typing::stop();
+        if let Some(w) = app.get_webview_window("ai-view") {
+            crate::protection::remove_noactivate(&w);
+        }
+        let _ = app.emit("ghost-typing-state", false);
+    } else {
+        if let Some(w) = app.get_webview_window("ai-view") {
+            crate::protection::apply_noactivate(&w);
+        }
+        if let Err(e) = crate::ghost_typing::start(app.clone()) {
+            eprintln!("[ghost] start failed: {e}");
+            return;
+        }
+        let _ = app.emit("ghost-typing-state", true);
+    }
+}
+
+/// Tauri command: start ghost typing from the frontend button.
+#[tauri::command]
+pub fn start_ghost_typing_cmd(app: AppHandle) -> Result<(), String> {
+    if crate::ghost_typing::is_active() {
+        return Ok(());
+    }
+    if let Some(w) = app.get_webview_window("ai-view") {
+        crate::protection::apply_noactivate(&w);
+    }
+    crate::ghost_typing::start(app.clone())?;
+    let _ = app.emit("ghost-typing-state", true);
+    Ok(())
+}
+
+/// Tauri command: stop ghost typing from the frontend (after send or cancel).
+#[tauri::command]
+pub fn stop_ghost_typing_cmd(app: AppHandle) {
+    crate::ghost_typing::stop();
+    if let Some(w) = app.get_webview_window("ai-view") {
+        crate::protection::remove_noactivate(&w);
+    }
+    let _ = app.emit("ghost-typing-state", false);
+}
+
+/// Toggle click-through (passthrough) mode on the ai-view window.
+///
+/// enabled = true  → mouse events pass through to whatever is behind the overlay;
+///                   the browser underneath stays focused (no blur/visibilitychange).
+/// enabled = false → normal interactive mode.
+#[tauri::command]
+pub fn set_click_through(app: AppHandle, enabled: bool) -> Result<(), String> {
+    if let Some(w) = app.get_webview_window("ai-view") {
+        w.set_ignore_cursor_events(enabled).map_err(|e| e.to_string())?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]

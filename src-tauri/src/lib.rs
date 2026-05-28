@@ -1,6 +1,7 @@
 mod commands;
 mod config;
 mod db;
+mod ghost_typing;
 mod protection;
 mod stt;
 mod tray;
@@ -153,14 +154,27 @@ pub fn run() {
             // System Tray
             tray::setup_tray(app.handle())?;
 
-            // Global Hotkey
+            // Global Hotkeys
             use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
+
+            // Toggle visibility
             let handle = app.handle().clone();
             app.handle()
                 .global_shortcut()
                 .on_shortcut(hotkey.as_str(), move |_app, _shortcut, event| {
                     if event.state == ShortcutState::Pressed {
                         commands::toggle_visibility(handle.clone());
+                    }
+                })?;
+
+            // Toggle ghost typing (Ctrl+Alt+G)
+            // This fires without stealing focus from the browser.
+            let handle2 = app.handle().clone();
+            app.handle()
+                .global_shortcut()
+                .on_shortcut("Ctrl+Alt+G", move |_app, _shortcut, event| {
+                    if event.state == ShortcutState::Pressed {
+                        commands::toggle_ghost_typing(handle2.clone());
                     }
                 })?;
 
@@ -188,6 +202,9 @@ pub fn run() {
             commands::delete_conversation,
             commands::get_messages,
             commands::append_message,
+            commands::set_click_through,
+            commands::start_ghost_typing_cmd,
+            commands::stop_ghost_typing_cmd,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

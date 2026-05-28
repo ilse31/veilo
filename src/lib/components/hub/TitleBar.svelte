@@ -1,5 +1,6 @@
 <script lang="ts">
   import { getCurrentWindow } from '@tauri-apps/api/window'
+  import { setClickThrough } from '$lib/tauri'
 
   interface Props {
     platform?: 'mac' | 'win'
@@ -10,11 +11,17 @@
 
   const win = getCurrentWindow()
 
-  let maximized = $state(false)
+  let maximized    = $state(false)
+  let clickThrough = $state(false)
 
   // Keep maximize icon in sync
   win.onResized(async () => {
     maximized = await win.isMaximized()
+  })
+
+  // Reset click-through indicator when window becomes visible again
+  win.onFocusChanged(({ payload: focused }) => {
+    if (focused) clickThrough = false
   })
 
   // For a skip-taskbar overlay, minimize = hide so the user can always
@@ -22,6 +29,11 @@
   async function minimize()       { await win.hide() }
   async function toggleMaximize() { await win.toggleMaximize(); maximized = await win.isMaximized() }
   async function close()          { await win.close() }
+
+  async function toggleClickThrough() {
+    clickThrough = !clickThrough
+    await setClickThrough(clickThrough)
+  }
 </script>
 
 <div class="hub-titlebar" data-tauri-drag-region>
@@ -42,6 +54,27 @@
       Mode Senyap
     </div>
   {/if}
+
+  <!-- Click-through toggle: overlay floats above browser without stealing focus -->
+  <button
+    class="ct-btn {clickThrough ? 'ct-on' : ''}"
+    onclick={toggleClickThrough}
+    aria-label={clickThrough ? 'Nonaktifkan click-through' : 'Aktifkan click-through'}
+    title={clickThrough
+      ? 'Click-through ON — klik menembus ke browser di bawah. Klik untuk nonaktifkan.'
+      : 'Click-through OFF — aktifkan agar browser tidak kehilangan fokus'}
+  >
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
+         stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <!-- cursor arrow -->
+      <path d="M5 3l14 9-7 1-4 7-3-17z"/>
+      {#if clickThrough}
+        <!-- slash through cursor when active -->
+        <line x1="3" y1="21" x2="21" y2="3"/>
+      {/if}
+    </svg>
+    {clickThrough ? 'Tembus ✓' : 'Tembus'}
+  </button>
 
   <div class="title-center" data-tauri-drag-region>{title}</div>
 
@@ -78,6 +111,23 @@
 </div>
 
 <style>
+  .ct-btn {
+    display: flex; align-items: center; gap: 5px;
+    padding: 0 8px; height: 22px; border-radius: 6px;
+    font-size: 11px; font-weight: 500; letter-spacing: 0.01em;
+    border: 1px solid var(--border);
+    background: transparent; color: var(--text-soft);
+    cursor: pointer; transition: all 0.15s;
+    pointer-events: auto; -webkit-app-region: no-drag;
+    flex-shrink: 0;
+  }
+  .ct-btn:hover { background: var(--bg-hover); color: var(--text); }
+  .ct-btn.ct-on {
+    background: color-mix(in srgb, var(--accent) 15%, transparent);
+    border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+    color: var(--accent);
+  }
+
   .lights {
     display: flex; gap: 8px; align-items: center;
     pointer-events: auto; -webkit-app-region: no-drag;

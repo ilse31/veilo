@@ -122,6 +122,18 @@ export async function appendMessage(convId: number, role: 'user' | 'assistant', 
   return invoke('append_message', { convId, role, body })
 }
 
+export async function setClickThrough(enabled: boolean): Promise<void> {
+  return invoke('set_click_through', { enabled })
+}
+
+export async function startGhostTyping(): Promise<void> {
+  return invoke('start_ghost_typing_cmd')
+}
+
+export async function stopGhostTyping(): Promise<void> {
+  return invoke('stop_ghost_typing_cmd')
+}
+
 export async function resizeServiceWebview(
   service: Service,
   x: number,

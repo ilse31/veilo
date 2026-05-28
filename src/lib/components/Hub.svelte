@@ -1,11 +1,13 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte'
+  import { listen } from '@tauri-apps/api/event'
   import TitleBar from './hub/TitleBar.svelte'
   import Sidebar from './hub/Sidebar.svelte'
   import Dashboard from './hub/Dashboard.svelte'
   import NativeChat from './hub/NativeChat.svelte'
   import HubSettings from './hub/HubSettings.svelte'
   import Onboarding from './hub/Onboarding.svelte'
+  import GhostTypingBar from './hub/GhostTypingBar.svelte'
   import { getConfig, getProfileName, injectToService } from '$lib/tauri'
   import { settings } from '$lib/stores/settings.svelte'
   import {
@@ -44,8 +46,17 @@
   let pendingServiceText = $state<string | null>(null)
   let webviewError = $state<string | null>(null)
   let contentAreaEl = $state<HTMLElement | null>(null)
+  let ghostActive = $state(false)
 
   const platform = navigator.userAgent.includes('Windows') ? 'win' : 'mac'
+
+  // Sync ghost typing state with Rust (global hotkey Ctrl+Alt+G emits this event)
+  onMount(async () => {
+    const unlisten = await listen<boolean>('ghost-typing-state', ({ payload }) => {
+      ghostActive = payload
+    })
+    return unlisten
+  })
 
   // Load persisted config and profile on startup
   onMount(async () => {
@@ -137,6 +148,15 @@
     }
   }
 
+  function handleGhostSend(text: string) {
+    ghostActive = false
+    if (isWebviewPage(page)) {
+      injectToService(page as Service, text).catch(console.error)
+    } else if (page === 'chat') {
+      pendingPrompt = text
+    }
+  }
+
   function handlePrompt(provider: string, text: string) {
     if (provider === 'native') {
       pendingPrompt = text
@@ -167,6 +187,13 @@
         <span class="wv-host">{webviewUrls[page]}</span>
         <span class="wv-tag">webview</span>
       </div>
+    {/if}
+
+    {#if ghostActive}
+      <GhostTypingBar
+        onSend={handleGhostSend}
+        onCancel={() => { ghostActive = false }}
+      />
     {/if}
 
     <div
