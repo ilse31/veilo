@@ -1,5 +1,6 @@
 mod commands;
 mod config;
+pub mod copilot;
 mod db;
 mod ghost_typing;
 mod protection;
