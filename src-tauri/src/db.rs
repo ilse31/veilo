@@ -195,17 +195,22 @@ pub fn create_copilot_session(
 
 pub fn end_copilot_session(db: &Db, session_id: i64) -> Result<()> {
     let conn = db.0.lock().unwrap();
-    conn.execute(
+    let changed = conn.execute(
         "UPDATE copilot_sessions SET ended_at = unixepoch() WHERE id = ?1",
         params![session_id],
     )?;
+    if changed == 0 {
+        return Err(rusqlite::Error::QueryReturnedNoRows);
+    }
     Ok(())
 }
 
 pub fn purge_copilot_session_data(db: &Db, session_id: i64) -> Result<()> {
     let conn = db.0.lock().unwrap();
-    conn.execute("DELETE FROM copilot_transcripts WHERE session_id = ?1", params![session_id])?;
-    conn.execute("DELETE FROM copilot_suggestions WHERE session_id = ?1", params![session_id])?;
+    let tx = conn.unchecked_transaction()?;
+    tx.execute("DELETE FROM copilot_transcripts WHERE session_id = ?1", params![session_id])?;
+    tx.execute("DELETE FROM copilot_suggestions WHERE session_id = ?1", params![session_id])?;
+    tx.commit()?;
     Ok(())
 }
 
@@ -216,11 +221,15 @@ pub fn insert_copilot_transcript(
     end_ms: u64,
     text: &str,
 ) -> Result<()> {
+    let start_i = i64::try_from(start_ms)
+        .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
+    let end_i = i64::try_from(end_ms)
+        .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
     let conn = db.0.lock().unwrap();
     conn.execute(
         "INSERT INTO copilot_transcripts(session_id, start_ms, end_ms, text)
          VALUES(?1, ?2, ?3, ?4)",
-        params![session_id, start_ms as i64, end_ms as i64, text],
+        params![session_id, start_i, end_i, text],
     )?;
     Ok(())
 }
@@ -250,6 +259,7 @@ pub fn list_copilot_sessions(db: &Db) -> Result<Vec<CopilotSessionRow>> {
          LEFT JOIN copilot_suggestions g ON g.session_id = s.id
          GROUP BY s.id
          ORDER BY s.id DESC
+         -- NOTE: capped at 50; v2 should add pagination.
          LIMIT 50",
     )?;
     let rows = stmt.query_map([], |r| {
@@ -289,18 +299,20 @@ mod tests {
     }
 
     #[test]
-    fn copilot_sessions_table_exists() {
+    fn copilot_tables_exist() {
         let dir = tempdir().unwrap();
         let db = open(dir.path()).unwrap();
         let conn = db.0.lock().unwrap();
-        let count: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='copilot_sessions'",
-                [],
-                |r| r.get(0),
-            )
-            .unwrap();
-        assert_eq!(count, 1, "copilot_sessions table should be created by open()");
+        for name in ["copilot_sessions", "copilot_transcripts", "copilot_suggestions"] {
+            let count: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?1",
+                    [name],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            assert_eq!(count, 1, "{name} table should be created by open()");
+        }
     }
 
     #[test]
@@ -362,9 +374,26 @@ mod tests {
         insert_copilot_suggestion(&db, sid, "ctx", "resp", "Bullets").unwrap();
         purge_copilot_session_data(&db, sid).unwrap();
         let conn = db.0.lock().unwrap();
-        let t: i64 = conn.query_row("SELECT COUNT(*) FROM copilot_transcripts", [], |r| r.get(0)).unwrap();
-        let s: i64 = conn.query_row("SELECT COUNT(*) FROM copilot_suggestions", [], |r| r.get(0)).unwrap();
+        let t: i64 = conn.query_row("SELECT COUNT(*) FROM copilot_transcripts WHERE session_id = ?1", [sid], |r| r.get(0)).unwrap();
+        let s: i64 = conn.query_row("SELECT COUNT(*) FROM copilot_suggestions WHERE session_id = ?1", [sid], |r| r.get(0)).unwrap();
         assert_eq!(t, 0);
         assert_eq!(s, 0);
+    }
+
+    #[test]
+    fn insert_transcript_rejects_overflow() {
+        let dir = tempdir().unwrap();
+        let db = open(dir.path()).unwrap();
+        let sid = create_copilot_session(&db, "generic", 90, true).unwrap();
+        let res = insert_copilot_transcript(&db, sid, u64::MAX, u64::MAX, "x");
+        assert!(res.is_err(), "u64::MAX should fail conversion to i64");
+    }
+
+    #[test]
+    fn end_session_errors_on_missing_id() {
+        let dir = tempdir().unwrap();
+        let db = open(dir.path()).unwrap();
+        let res = end_copilot_session(&db, 99999);
+        assert!(res.is_err(), "ending a nonexistent session should error");
     }
 }
