@@ -41,6 +41,7 @@ pub struct Orchestrator {
     pub config: OrchestratorConfig,
     pub buffer: Arc<Mutex<TranscriptBuffer>>,
     pub last_trigger: Arc<Mutex<Option<Instant>>>,
+    pub last_chunk_at: Arc<Mutex<Option<Instant>>>,
     force_tx: mpsc::UnboundedSender<()>,
     force_rx: Arc<Mutex<Option<mpsc::UnboundedReceiver<()>>>>,
 }
@@ -53,6 +54,7 @@ impl Orchestrator {
             config,
             buffer: Arc::new(Mutex::new(TranscriptBuffer::new(max_age))),
             last_trigger: Arc::new(Mutex::new(None)),
+            last_chunk_at: Arc::new(Mutex::new(None)),
             force_tx,
             force_rx: Arc::new(Mutex::new(Some(force_rx))),
         }
@@ -75,20 +77,26 @@ impl Orchestrator {
                         if let Ok(chunk) = serde_json::from_str::<TranscriptChunk>(event.payload()) {
                             if chunk.session_id == me.config.session_id {
                                 me.buffer.lock().unwrap().append(chunk);
+                                *me.last_chunk_at.lock().unwrap() = Some(Instant::now());
                             }
                         }
                     }
                 },
             );
 
-            let mut force_rx = me.force_rx.lock().unwrap().take().unwrap();
+            let mut force_rx = me.force_rx.lock().unwrap().take()
+                .expect("Orchestrator::start called more than once");
 
             loop {
                 tokio::select! {
                     _ = sleep(Duration::from_millis(200)) => {
-                        // Debounce check: only fire if we have new chunks AND none arrived recently
                         let has_new = !me.buffer.lock().unwrap().since_last_trigger().is_empty();
                         if !has_new { continue; }
+                        // Wait for debounce_ms of silence since last chunk
+                        let elapsed_since_chunk = me.last_chunk_at.lock().unwrap()
+                            .map(|t| t.elapsed())
+                            .unwrap_or(Duration::ZERO);
+                        if elapsed_since_chunk < Duration::from_millis(me.config.debounce_ms) { continue; }
                         if me.is_rate_limited() { continue; }
                         me.trigger(&app).await;
                     }
@@ -168,7 +176,10 @@ impl Orchestrator {
                         for line in text.lines() {
                             let Some(data) = line.strip_prefix("data: ") else { continue };
                             if data == "[DONE]" { continue; }
-                            let Ok(j) = serde_json::from_str::<serde_json::Value>(data) else { continue };
+                            let Ok(j) = serde_json::from_str::<serde_json::Value>(data) else {
+                                eprintln!("[orchestrator] SSE parse failed (likely split chunk): {}", data);
+                                continue;
+                            };
                             if let Some(d) = j["choices"][0]["delta"]["content"].as_str() {
                                 full.push_str(d);
                                 let _ = app_inner.emit("copilot-suggest-delta", SuggestDelta {
@@ -192,9 +203,11 @@ impl Orchestrator {
             if save && !full.is_empty() {
                 if let Some(db) = app_inner.try_state::<crate::db::Db>() {
                     let fmt = format!("{:?}", format);
-                    let _ = crate::db::insert_copilot_suggestion(
+                    if let Err(e) = crate::db::insert_copilot_suggestion(
                         &db, session_id, &context_for_db, &full, &fmt,
-                    );
+                    ) {
+                        eprintln!("[orchestrator] db save failed: {e}");
+                    }
                 }
             }
         });
@@ -248,5 +261,20 @@ mod tests {
     fn force_regenerate_does_not_panic() {
         let o = Orchestrator::new(cfg());
         o.force_regenerate();
+    }
+
+    #[test]
+    fn debounce_ms_field_is_stored() {
+        // Sanity check: the debounce_ms field round-trips through Orchestrator::new
+        let mut c = cfg();
+        c.debounce_ms = 5000;
+        let o = Orchestrator::new(c);
+        assert_eq!(o.config.debounce_ms, 5000);
+    }
+
+    #[test]
+    fn last_chunk_at_initially_none() {
+        let o = Orchestrator::new(cfg());
+        assert!(o.last_chunk_at.lock().unwrap().is_none());
     }
 }
