@@ -12,6 +12,9 @@ use crate::copilot::transcript::TranscriptChunk;
 
 const SILENCE_RMS_THRESHOLD: f32 = 0.005;
 const SILENCE_DURATION_MS: u64 = 1_000;
+// KNOWN LIMITATION: long monologues are sliced at 20s boundaries with no overlap.
+// Whisper may mis-transcribe words straddling the boundary. v2 should add a small
+// overlap buffer (~300ms) when flushing on MAX rather than silence.
 const MAX_UTTERANCE_MS: u64 = 20_000;
 const MIN_UTTERANCE_MS: u64 = 1_000;
 const CHUNK_MS: u64 = 100;
@@ -73,6 +76,7 @@ impl SttBackend for WhisperCloudStt {
         let api_url = self.api_url.trim_end_matches('/').to_string();
         let api_key = self.api_key.clone();
         let model   = self.model.clone();
+        let language = self.language.clone();
         let handle_slot = self.join_handle.clone();
 
         let task = tokio::spawn(async move {
@@ -107,18 +111,21 @@ impl SttBackend for WhisperCloudStt {
                     let end   = clock_ms;
                     utterance.clear();
                     silent_ms = 0;
+                    utt_start_ms = 0;
 
+                    let mut form = reqwest::multipart::Form::new()
+                        .text("model", model.clone())
+                        .part("file",
+                            reqwest::multipart::Part::bytes(wav)
+                                .file_name("audio.wav")
+                                .mime_str("audio/wav").unwrap()
+                        );
+                    if let Some(ref lang) = language {
+                        form = form.text("language", lang.clone());
+                    }
                     let req = client.post(format!("{api_url}/v1/audio/transcriptions"))
                         .bearer_auth(&api_key)
-                        .multipart(
-                            reqwest::multipart::Form::new()
-                                .text("model", model.clone())
-                                .part("file",
-                                    reqwest::multipart::Part::bytes(wav)
-                                        .file_name("audio.wav")
-                                        .mime_str("audio/wav").unwrap()
-                                )
-                        );
+                        .multipart(form);
 
                     match req.send().await {
                         Ok(resp) if resp.status().is_success() => {
@@ -150,6 +157,9 @@ impl SttBackend for WhisperCloudStt {
             eprintln!("[whisper] audio_rx closed; stopping");
         });
 
+        // TODO(v1.1): the second spawn here is racy — if stop() is called before this
+        // completes, the worker task is not aborted. Acceptable for v1 because audio_rx
+        // is owned by the worker and the channel closes on session teardown.
         // Stash the handle so stop() can abort
         tokio::spawn(async move {
             *handle_slot.lock().await = Some(task);
