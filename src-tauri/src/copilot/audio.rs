@@ -17,10 +17,15 @@ const CHUNK_SAMPLES: usize = 1_600; // 100ms at 16kHz mono
 
 pub struct AudioCapture {
     pub stop_flag: Arc<AtomicBool>,
-    pub rx: mpsc::Receiver<Vec<f32>>,
+    rx: Option<mpsc::Receiver<Vec<f32>>>,
 }
 
 impl AudioCapture {
+    /// Take the audio receiver once. Returns `None` if already taken.
+    pub fn take_rx(&mut self) -> Option<mpsc::Receiver<Vec<f32>>> {
+        self.rx.take()
+    }
+
     pub fn stop(&self) {
         self.stop_flag.store(true, Ordering::Relaxed);
     }
@@ -114,12 +119,20 @@ pub fn start_loopback() -> Result<AudioCapture, String> {
         // stream dropped here, releasing WASAPI resources
     });
 
-    Ok(AudioCapture { stop_flag, rx })
+    Ok(AudioCapture { stop_flag, rx: Some(rx) })
 }
 
 #[cfg(not(target_os = "windows"))]
 pub fn start_loopback() -> Result<AudioCapture, String> {
     Err("Loopback capture is Windows-only in v1".into())
+}
+
+// ── non-Windows stub for tests ────────────────────────────────────────────────
+#[cfg(all(not(target_os = "windows"), test))]
+fn _make_stub_capture() -> AudioCapture {
+    let stop_flag = Arc::new(AtomicBool::new(false));
+    let (_tx, rx) = tokio::sync::mpsc::channel::<Vec<f32>>(1);
+    AudioCapture { stop_flag, rx: Some(rx) }
 }
 
 #[cfg(test)]

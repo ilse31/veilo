@@ -358,6 +358,136 @@ pub fn set_click_through(app: AppHandle, enabled: bool) -> Result<(), String> {
     Ok(())
 }
 
+// ── Copilot commands ─────────────────────────────────────────────────────────
+
+use std::sync::Arc;
+use crate::copilot::orchestrator::Orchestrator;
+use crate::copilot::preset::{builtin_presets, find_preset, Preset};
+use crate::copilot::session::{ActiveSession, CopilotState, SessionStatus};
+use crate::copilot::stt::{whisper_cloud::WhisperCloudStt, SttBackend};
+
+#[tauri::command]
+pub fn copilot_get_presets() -> Vec<Preset> {
+    builtin_presets()
+}
+
+#[tauri::command]
+pub fn copilot_session_status(state: tauri::State<CopilotState>) -> Option<SessionStatus> {
+    crate::copilot::session::current_status(&state)
+}
+
+#[tauri::command]
+pub async fn copilot_start_session(
+    app: AppHandle,
+    state: tauri::State<'_, CopilotState>,
+    db: tauri::State<'_, crate::db::Db>,
+    preset_id: String,
+    context_window_s: u64,
+    save: bool,
+    api_url: String,
+    api_key: String,
+    model: String,
+) -> Result<i64, String> {
+    {
+        let guard = state.0.lock().map_err(|e| e.to_string())?;
+        if guard.is_some() {
+            return Err("Session already running".into());
+        }
+    }
+    let preset = find_preset(&preset_id).ok_or_else(|| format!("unknown preset {preset_id}"))?;
+    let app_cfg = crate::config::read_config(
+        &app.path().app_data_dir().map_err(|e| e.to_string())?,
+    );
+    let sid = crate::db::create_copilot_session(
+        &db, &preset_id, context_window_s as i64, save,
+    ).map_err(|e| e.to_string())?;
+
+    let mut audio = crate::copilot::audio::start_loopback()?;
+    let audio_rx = audio.take_rx().ok_or_else(|| "audio rx already taken".to_string())?;
+
+    let mut stt = Box::new(WhisperCloudStt::new(
+        api_url.clone(), api_key.clone(), "whisper-1".into(),
+    ));
+    stt.start(sid, audio_rx, app.clone())?;
+
+    let mut orch_cfg = crate::copilot::session::build_orchestrator_config(
+        sid, preset.clone(), context_window_s, save, &app_cfg,
+    );
+    orch_cfg.api_url = api_url;
+    orch_cfg.api_key = api_key;
+    orch_cfg.model   = model;
+    let orchestrator = Arc::new(Orchestrator::new(orch_cfg));
+    orchestrator.clone().start(app.clone());
+
+    {
+        let mut guard = state.0.lock().map_err(|e| e.to_string())?;
+        *guard = Some(ActiveSession {
+            id:           sid,
+            preset_id:    preset_id.clone(),
+            started_at:   chrono::Utc::now().timestamp(),
+            save,
+            audio,
+            stt,
+            orchestrator,
+        });
+    }
+
+    // Show copilot-card window if it exists (Task 10 creates it; this is graceful)
+    if let Some(w) = app.get_webview_window("copilot-card") {
+        let _ = w.show();
+    }
+
+    let _ = app.emit("copilot-session-started", serde_json::json!({
+        "id": sid, "preset_id": preset_id,
+    }));
+    Ok(sid)
+}
+
+#[tauri::command]
+pub fn copilot_stop_session(
+    app: AppHandle,
+    state: tauri::State<CopilotState>,
+    db: tauri::State<crate::db::Db>,
+) -> Result<(), String> {
+    let session = {
+        let mut guard = state.0.lock().map_err(|e| e.to_string())?;
+        guard.take()
+    };
+    let Some(session) = session else { return Ok(()); };
+
+    session.audio.stop();
+    session.stt.stop();
+    // orchestrator task runs until app exit; tokio cleans up on shutdown.
+
+    let _ = crate::db::end_copilot_session(&db, session.id);
+    if !session.save {
+        let _ = crate::db::purge_copilot_session_data(&db, session.id);
+    }
+
+    if let Some(w) = app.get_webview_window("copilot-card") {
+        let _ = w.hide();
+    }
+
+    let _ = app.emit("copilot-session-ended", serde_json::json!({ "id": session.id }));
+    Ok(())
+}
+
+#[tauri::command]
+pub fn copilot_force_regenerate(state: tauri::State<CopilotState>) -> Result<(), String> {
+    let guard = state.0.lock().map_err(|e| e.to_string())?;
+    if let Some(session) = guard.as_ref() {
+        session.orchestrator.force_regenerate();
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn copilot_list_sessions(
+    db: tauri::State<crate::db::Db>,
+) -> Result<Vec<crate::db::CopilotSessionRow>, String> {
+    crate::db::list_copilot_sessions(&db).map_err(|e| e.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     #[test]

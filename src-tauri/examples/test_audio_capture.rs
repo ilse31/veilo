@@ -7,11 +7,12 @@ use tauri_app_lib::copilot::audio;
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
     let mut cap = audio::start_loopback().expect("start_loopback failed");
+    let mut rx = cap.take_rx().expect("rx already taken");
     println!("Capturing for 5 seconds — play any audio on your system...");
 
     let start = std::time::Instant::now();
     while start.elapsed() < std::time::Duration::from_secs(5) {
-        match tokio::time::timeout(std::time::Duration::from_millis(200), cap.rx.recv()).await {
+        match tokio::time::timeout(std::time::Duration::from_millis(200), rx.recv()).await {
             Ok(Some(chunk)) => {
                 let rms = (chunk.iter().map(|s| s * s).sum::<f32>() / chunk.len() as f32).sqrt();
                 println!("chunk len={} rms={:.4}", chunk.len(), rms);

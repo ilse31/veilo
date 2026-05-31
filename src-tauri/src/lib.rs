@@ -88,6 +88,7 @@ pub fn run() {
                 std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
             })?;
             app.manage(profile_db);
+            app.manage(crate::copilot::session::CopilotState::new());
             let cfg = config::read_config(&app_data_dir);
             let hotkey = cfg.hotkey.clone();
 
@@ -206,6 +207,12 @@ pub fn run() {
             commands::set_click_through,
             commands::start_ghost_typing_cmd,
             commands::stop_ghost_typing_cmd,
+            commands::copilot_get_presets,
+            commands::copilot_session_status,
+            commands::copilot_start_session,
+            commands::copilot_stop_session,
+            commands::copilot_force_regenerate,
+            commands::copilot_list_sessions,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
