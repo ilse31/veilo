@@ -21,20 +21,22 @@ The protection is enforced at the OS level (Windows `WDA_EXCLUDEFROMCAPTURE`, ma
 
 ## Platform support
 
-| Platform | Status | Notes |
-|---|---|---|
-| Windows 10 (2004+) / 11 | ✅ Primary target | Full feature set |
-| macOS 12+ | ⚠️ Partial | Core protection works; Windows-only features (ghost typing, WASAPI loopback) stubbed |
-| Linux | ❌ Not planned | Wayland/X11 do not expose equivalent protection APIs |
+| Platform                | Status            | Notes                                                                                |
+| ----------------------- | ----------------- | ------------------------------------------------------------------------------------ |
+| Windows 10 (2004+) / 11 | ✅ Primary target | Full feature set                                                                     |
+| macOS 12+               | ⚠️ Partial        | Core protection works; Windows-only features (ghost typing, WASAPI loopback) stubbed |
+| Linux                   | ❌ Not planned    | Wayland/X11 do not expose equivalent protection APIs                                 |
 
 ## Features
 
 ### Core protection
+
 - **Capture-invisible windows** — every app window is registered with `SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE)` on Windows and `setContentProtected(true)` on macOS
 - **Always-on-top floating overlay** — frameless, transparent, sits above other windows without stealing focus
 - **Toggle protection at runtime** — disable the shield temporarily without restarting
 
 ### Window management
+
 - **Global hotkeys** — show/hide instantly from any app (`Ctrl+Shift+Space` by default)
 - **Click-through mode** — make the overlay pass mouse events through to whatever is behind it
 - **Show-without-activate** — bringing the window forward never takes focus from the underlying app (no `blur` events fire in the browser behind it)
@@ -42,31 +44,37 @@ The protection is enforced at the OS level (Windows `WDA_EXCLUDEFROMCAPTURE`, ma
 - **Multi-window architecture** — separate windows for the main hub, settings, and embedded AI services
 
 ### Embedded AI services
+
 - **ChatGPT, Claude, and Google Translate** as embedded webviews — all protected from capture
 - **Anti-bot fingerprint patch** — overrides `navigator.webdriver`, injects `window.chrome`, etc. so Cloudflare doesn't block the embedded browser
 - **Native AI chat** — built-in chat panel that talks to any OpenAI-compatible endpoint (OpenAI, Ollama, Groq, LM Studio, etc.)
 - **Text injection** — push text from one service into another's input box programmatically
 
 ### Ghost typing (Windows-only)
+
 A low-level keyboard hook that captures every keystroke globally and routes it to noscreen, so you can type into the overlay while the browser behind it stays focused. The browser never sees the keys — no blur event, no visibility change — and noscreen never has to steal focus.
 
 Triggered with `Ctrl+Alt+G`. Useful for typing prompts into an AI without the meeting app noticing you switched windows.
 
 ### Speech-to-text (Windows-only)
+
 Continuous dictation via Windows built-in Speech Recognition (no API key required). Transcribes whatever is set as your default recording device, including system loopback via Stereo Mix.
 
 ### Conversation history
+
 - SQLite-backed (`rusqlite` with bundled SQLite)
 - Stores conversations and messages per profile
 - Survives restarts; on-disk only, never sent to remote services
 
 ### Customization
+
 - Opacity slider (live)
 - Light/dark theme
 - Configurable AI endpoint URL, API key, and model
 - Override URLs for embedded webviews (e.g. point ChatGPT to a self-hosted alternative)
 
 ### In development
+
 - **Cluely-style copilot mode** — live audio capture from system loopback, real-time transcription, and proactive AI suggestions in a floating answer card. Design spec at [docs/superpowers/specs/2026-05-31-copilot-cluely-mode-design.md](docs/superpowers/specs/2026-05-31-copilot-cluely-mode-design.md).
 
 ## Quick start
@@ -132,11 +140,10 @@ npm run check      # svelte-check + tsc
 └────────────────────────────────────────────────────────────────────┘
 ```
 
-See [CLAUDE.md](CLAUDE.md) for deeper notes on non-obvious patterns, gotchas, and known tech debt.
-
 ## How the protection works
 
 **Windows** — Each window's HWND is passed to `SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE)`. The Desktop Window Manager omits these windows when composing the frame that screen-capture APIs receive. Works against:
+
 - `BitBlt` / `GetWindowDC`-based capture (Snipping Tool, older OBS)
 - Desktop Duplication API (modern OBS, NDI, most meeting apps)
 - Windows.Graphics.Capture API (newer Teams, Snip & Sketch)
@@ -147,12 +154,12 @@ See [CLAUDE.md](CLAUDE.md) for deeper notes on non-obvious patterns, gotchas, an
 
 ## Default keyboard shortcuts
 
-| Shortcut | Action |
-|---|---|
-| `Ctrl+Shift+Space` | Show / hide the overlay |
-| `Ctrl+Alt+G` | Toggle ghost typing mode |
+| Shortcut            | Action                     |
+| ------------------- | -------------------------- |
+| `Ctrl+Shift+Space`  | Show / hide the overlay    |
+| `Ctrl+Alt+G`        | Toggle ghost typing mode   |
 | `Ctrl+1` … `Ctrl+5` | Navigate between hub pages |
-| `Ctrl+,` | Open settings |
+| `Ctrl+,`            | Open settings              |
 
 (Configurable hotkey UI is on the roadmap.)
 
@@ -168,10 +175,10 @@ See [CLAUDE.md](CLAUDE.md) for deeper notes on non-obvious patterns, gotchas, an
 
 MIT — see [package.json](package.json).
 
-
 ## Recommended IDE setup
 
 [VS Code](https://code.visualstudio.com/) with these extensions:
+
 - [Svelte](https://marketplace.visualstudio.com/items?itemName=svelte.svelte-vscode)
 - [Tauri](https://marketplace.visualstudio.com/items?itemName=tauri-apps.tauri-vscode)
 - [rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer)
