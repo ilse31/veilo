@@ -1,9 +1,19 @@
 image: Visual Studio 2022
 
+version: 1.0.{build}
+
 environment:
   RUSTUP_HOME: C:\Users\appveyor\.rustup
   CARGO_HOME: C:\Users\appveyor\.cargo
   CI: "true"
+
+before_build:
+  - ps: |
+      if ($env:APPVEYOR_REPO_TAG -eq "true") {
+        $env:TAURI_APP_VERSION = $env:APPVEYOR_REPO_TAG_NAME -replace '^v', ''
+      } else {
+        $env:TAURI_APP_VERSION = $env:APPVEYOR_BUILD_VERSION
+      }
 
 install:
   # Install Node.js 20

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { getVersion } from '@tauri-apps/api/app'
   import { icons } from './icons'
   import { settings } from '$lib/stores/settings.svelte'
 
@@ -8,6 +9,11 @@
     apiOk?: boolean
   }
   let { current, onNav, apiOk = false }: Props = $props()
+
+  let appVersion = $state('')
+  $effect(() => {
+    getVersion().then(v => appVersion = v)
+  })
 
   const navMain = { id: 'dashboard', label: 'Dasbor', icon: 'dashboard' as const, kbd: '⌘1' }
   const navAssistants = [
@@ -25,7 +31,7 @@
   <div class="hub-brand">
     <div class="hub-brand-logo">N</div>
     <div class="hub-brand-name">no‑screen</div>
-    <div class="hub-brand-sub">v0.4</div>
+    <div class="hub-brand-sub">{appVersion ? `v${appVersion}` : '...'}</div>
   </div>
 
   <!-- Navigasi -->
