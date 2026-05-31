@@ -2,6 +2,9 @@
 //!
 //! On Windows, uses cpal's default *output* device in loopback mode so we
 //! capture exactly what the user hears — no Stereo Mix setup required.
+//!
+//! TODO(v2): switch eprintln → tracing; smarter resampler (phase-tracked
+//! across callbacks); avoid unnecessary tx.clone in single-consumer path.
 
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -23,46 +26,48 @@ impl AudioCapture {
     }
 }
 
+impl Drop for AudioCapture {
+    fn drop(&mut self) {
+        self.stop_flag.store(true, Ordering::Relaxed);
+    }
+}
+
 #[cfg(target_os = "windows")]
 pub fn start_loopback() -> Result<AudioCapture, String> {
     use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+
+    // Discover & validate device BEFORE spawning thread so we can return errors synchronously.
+    let host = cpal::default_host();
+    let device = host
+        .default_output_device()
+        .ok_or_else(|| "no default output device".to_string())?;
+    let device_name = device.name().unwrap_or_else(|_| "unknown".into());
+    let supported_config = device
+        .default_output_config()
+        .map_err(|e| format!("default_output_config: {e}"))?;
+
+    if supported_config.sample_format() != cpal::SampleFormat::F32 {
+        return Err(format!(
+            "unsupported sample format: {:?} (only F32 supported in v1)",
+            supported_config.sample_format()
+        ));
+    }
+    let input_rate = supported_config.sample_rate().0;
+    let channels = supported_config.channels() as usize;
+    let stream_config = supported_config.config();
 
     let stop_flag = Arc::new(AtomicBool::new(false));
     let stop_for_thread = stop_flag.clone();
     let (tx, rx) = mpsc::channel::<Vec<f32>>(64);
 
     std::thread::spawn(move || {
-        let host = cpal::default_host();
-        let device = match host.default_output_device() {
-            Some(d) => d,
-            None => {
-                eprintln!("[audio] no default output device");
-                return;
-            }
-        };
-        let config = match device.default_output_config() {
-            Ok(c) => c,
-            Err(e) => {
-                eprintln!("[audio] default_output_config: {e}");
-                return;
-            }
-        };
-        let input_rate = config.sample_rate().0;
-        let channels = config.channels() as usize;
-
-        eprintln!("[audio] loopback start: device={:?} sr={input_rate} ch={channels}",
-                  device.name().ok());
+        eprintln!("[audio] loopback start: device={device_name:?} sr={input_rate} ch={channels}");
 
         let mut buf16k: Vec<f32> = Vec::with_capacity(CHUNK_SAMPLES);
         let step = input_rate as f32 / TARGET_SAMPLE_RATE as f32;
-
-        let stream_config = config.config();
-        let stop_inner = stop_for_thread.clone();
-        let tx_inner = tx.clone();
-
+        let tx_inner = tx;
         let err_fn = |e| eprintln!("[audio] stream error: {e}");
 
-        // Build a loopback input stream on the OUTPUT device (cpal supports this on Windows/WASAPI).
         let stream = device.build_input_stream(
             &stream_config,
             move |data: &[f32], _| {
@@ -78,6 +83,7 @@ pub fn start_loopback() -> Result<AudioCapture, String> {
                     buf16k.push(mono);
                     if buf16k.len() >= CHUNK_SAMPLES {
                         let chunk = std::mem::replace(&mut buf16k, Vec::with_capacity(CHUNK_SAMPLES));
+                        // Back-pressure: silently drop chunks if consumer is > 6.4s behind (buffer cap = 64).
                         let _ = tx_inner.try_send(chunk);
                     }
                     i += step;
@@ -91,18 +97,21 @@ pub fn start_loopback() -> Result<AudioCapture, String> {
             Ok(s) => s,
             Err(e) => {
                 eprintln!("[audio] build_input_stream: {e}");
+                stop_for_thread.store(true, Ordering::Relaxed);
                 return;
             }
         };
         if let Err(e) = stream.play() {
             eprintln!("[audio] stream.play: {e}");
+            stop_for_thread.store(true, Ordering::Relaxed);
             return;
         }
 
-        while !stop_inner.load(Ordering::Relaxed) {
+        while !stop_for_thread.load(Ordering::Relaxed) {
             std::thread::sleep(std::time::Duration::from_millis(100));
         }
         eprintln!("[audio] loopback stop");
+        // stream dropped here, releasing WASAPI resources
     });
 
     Ok(AudioCapture { stop_flag, rx })
