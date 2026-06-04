@@ -131,6 +131,26 @@ pub fn run() {
                 .build()?;
             protection::apply(&settings_win);
 
+            // Window 3: Copilot floating answer card (created hidden, shown when session starts)
+            let card_url = if cfg!(debug_assertions) {
+                WebviewUrl::External("http://localhost:1420/copilot-card".parse()?)
+            } else {
+                WebviewUrl::App("index.html".into())
+            };
+            let copilot_card = WebviewWindowBuilder::new(app, "copilot-card", card_url)
+                .title("noscreen — Copilot")
+                .decorations(false)
+                .always_on_top(true)
+                .content_protected(true)
+                .skip_taskbar(true)
+                .inner_size(380.0, 340.0)
+                .min_inner_size(320.0, 200.0)
+                .resizable(true)
+                .transparent(true)
+                .visible(false)
+                .build()?;
+            protection::apply(&copilot_card);
+
             // Service windows (pre-created hidden; shown/repositioned on demand)
             for (service, url_str) in [
                 ("gpt",       "https://chatgpt.com"),
