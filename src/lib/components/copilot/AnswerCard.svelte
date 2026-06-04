@@ -3,6 +3,7 @@
   import { listen } from '@tauri-apps/api/event'
   import { invoke } from '@tauri-apps/api/core'
   import { getCurrentWindow } from '@tauri-apps/api/window'
+  import { settings } from '$lib/stores/settings.svelte'
 
   type Format = 'Bullets' | 'Headline' | 'Code'
   interface Suggestion {
@@ -42,7 +43,19 @@
       )
       const offDone = await listen<{id:string}>('copilot-suggest-done', ({payload}) => {
         const s = history.find(h => h.id === payload.id)
-        if (s) s.done = true
+        if (s) {
+          s.done = true
+          // Schedule auto-dismiss if not pinned and timeout > 0
+          const dismissAfterMs = settings.copilotAutoDismissS * 1000
+          if (dismissAfterMs > 0) {
+            setTimeout(() => {
+              // Only dismiss if: still showing this suggestion as current, not pinned, no newer arrived
+              if (!pinned && history[0]?.id === payload.id) {
+                getCurrentWindow().hide()
+              }
+            }, dismissAfterMs)
+          }
+        }
       })
       const offEnd = await listen('copilot-session-ended', async () => {
         await getCurrentWindow().hide()

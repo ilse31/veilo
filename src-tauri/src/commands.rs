@@ -183,7 +183,7 @@ pub fn hide_service_webview(app: AppHandle, service: String) -> Result<(), Strin
 /// protected = false → visible in screenshots and screen sharing
 #[tauri::command]
 pub fn set_all_content_protected(app: AppHandle, protected: bool) -> Result<(), String> {
-    for label in ["ai-view", "settings"] {
+    for label in ["ai-view", "settings", "copilot-card"] {
         if let Some(w) = app.get_webview_window(label) {
             w.set_content_protected(protected).map_err(|e| e.to_string())?;
         }
