@@ -16,6 +16,7 @@
   })
 
   const navMain = { id: 'dashboard', label: 'Dasbor', icon: 'dashboard' as const, kbd: '⌘1' }
+  const navCopilot = { id: 'copilot', label: 'Copilot', icon: 'dashboard' as const, kbd: '⌘6' }
   const navAssistants = [
     { id: 'gpt',       label: 'ChatGPT',    kbd: '⌘2', src: 'gpt' },
     { id: 'claude',    label: 'Claude',     kbd: '⌘3', src: 'claude' },
@@ -51,6 +52,27 @@
       </span>
       <span>{navMain.label}</span>
       <span class="kbd">{navMain.kbd}</span>
+    </div>
+  </div>
+
+  <!-- Copilot -->
+  <div class="hub-section-label">Copilot (Beta)</div>
+  <div class="hub-nav-list">
+    <div
+      class="hub-nav-item {current === navCopilot.id ? 'active' : ''}"
+      onclick={() => onNav(navCopilot.id)}
+      role="button" tabindex="0"
+      onkeydown={(e) => e.key === 'Enter' && onNav(navCopilot.id)}
+    >
+      <span class="ic">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
+             stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="3" />
+          <path d="M12 1v6m0 10v6m11-11h-6M7 12H1" />
+        </svg>
+      </span>
+      <span>{navCopilot.label}</span>
+      <span class="kbd">{navCopilot.kbd}</span>
     </div>
   </div>
 

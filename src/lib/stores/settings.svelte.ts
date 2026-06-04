@@ -19,4 +19,10 @@ export const settings = $state({
   urlGpt:       'https://chat.openai.com',
   urlClaude:    'https://claude.ai',
   urlTranslate: 'https://translate.google.com',
+  // Copilot
+  copilotContextS:      90,
+  copilotAutoDismissS:  25,
+  copilotMinIntervalS:  4,
+  sttBackend:           'whisper-cloud' as const,
+  whisperModel:         'whisper-1',
 })

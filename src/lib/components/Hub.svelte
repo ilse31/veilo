@@ -10,6 +10,9 @@
   import GhostTypingBar from './hub/GhostTypingBar.svelte'
   import { getConfig, getProfileName, injectToService } from '$lib/tauri'
   import { settings } from '$lib/stores/settings.svelte'
+  import CopilotPanel from './copilot/CopilotPanel.svelte'
+  import StartSessionModal from './copilot/StartSessionModal.svelte'
+  import { copilotSessionStatus } from '$lib/copilot/api'
   import {
     showService,
     hideService,
@@ -19,7 +22,7 @@
     SERVICES,
   } from './hub/webviewManager'
 
-  type Page = 'onboarding' | 'dashboard' | Service | 'chat' | 'settings'
+  type Page = 'onboarding' | 'dashboard' | Service | 'chat' | 'settings' | 'copilot'
 
   const pageTitles: Record<Page, string> = {
     onboarding: 'Selamat Datang',
@@ -29,6 +32,7 @@
     translate:  'Google Terjemahan',
     chat:       'Obrolan AI',
     settings:   'Pengaturan',
+    copilot:    'Copilot',
   }
 
   const webviewUrls: Record<Service, string> = {
@@ -47,6 +51,8 @@
   let webviewError = $state<string | null>(null)
   let contentAreaEl = $state<HTMLElement | null>(null)
   let ghostActive = $state(false)
+  let showStartModal = $state(false)
+  let copilotActiveStatus = $state<{ id: number, preset_id: string, started_at: number } | null>(null)
 
   const platform = navigator.userAgent.includes('Windows') ? 'win' : 'mac'
 
@@ -74,6 +80,16 @@
     } catch {}
   })
 
+  // Poll copilot session status every 3s
+  onMount(() => {
+    const tick = async () => {
+      copilotActiveStatus = await copilotSessionStatus()
+    }
+    tick()
+    const i = setInterval(tick, 3000)
+    return () => clearInterval(i)
+  })
+
   // Apply dark theme reactively
   $effect(() => {
     document.documentElement.setAttribute('data-theme', settings.dark ? 'dark' : 'light')
@@ -98,7 +114,7 @@
       if (!(e.metaKey || e.ctrlKey)) return
       const map: Record<string, Page> = {
         '1': 'dashboard', '2': 'gpt', '3': 'claude',
-        '4': 'translate', '5': 'chat', ',': 'settings',
+        '4': 'translate', '5': 'chat', ',': 'settings', '6': 'copilot',
       }
       if (map[e.key]) { e.preventDefault(); setPage(map[e.key] as Page) }
     }
@@ -179,7 +195,14 @@
   <Sidebar current={page} onNav={(p) => setPage(p as Page)} apiOk={!!settings.apiKey} />
 
   <main class="hub-main">
-    <TitleBar {platform} title={pageTitles[page]} stealth={settings.stealth} />
+    <TitleBar
+      {platform}
+      title={pageTitles[page]}
+      stealth={settings.stealth}
+      copilotElapsedS={copilotActiveStatus
+        ? Math.floor(Date.now()/1000 - copilotActiveStatus.started_at)
+        : null}
+    />
 
     {#if isWebviewPage(page)}
       <div class="hub-wv-strip">
@@ -221,6 +244,9 @@
       {:else if page === 'settings'}
         <HubSettings />
 
+      {:else if page === 'copilot'}
+        <CopilotPanel onStartClick={() => showStartModal = true} />
+
       {:else if isWebviewPage(page)}
         {#if webviewError}
           <div class="hub-wv-error">
@@ -231,6 +257,15 @@
         {/if}
       {/if}
     </div>
+
+    <StartSessionModal
+      open={showStartModal}
+      apiUrl={settings.apiUrl}
+      apiKey={settings.apiKey}
+      model={settings.model}
+      onClose={() => showStartModal = false}
+      onStarted={(_sid) => { showStartModal = false }}
+    />
   </main>
 </div>
 {/if}

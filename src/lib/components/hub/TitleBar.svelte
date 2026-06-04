@@ -6,8 +6,9 @@
     platform?: 'mac' | 'win'
     title?: string
     stealth?: boolean
+    copilotElapsedS?: number | null
   }
-  let { platform = 'mac', title = '', stealth = false }: Props = $props()
+  let { platform = 'mac', title = '', stealth = false, copilotElapsedS = null }: Props = $props()
 
   const win = getCurrentWindow()
 
@@ -76,7 +77,14 @@
     {clickThrough ? 'Tembus ✓' : 'Tembus'}
   </button>
 
-  <div class="title-center" data-tauri-drag-region>{title}</div>
+  <div class="title-center" data-tauri-drag-region>
+    {title}
+    {#if copilotElapsedS != null}
+      <span class="copilot-badge" title="Sesi copilot aktif">
+        ● Live {Math.floor(copilotElapsedS/60).toString().padStart(2,'0')}:{(copilotElapsedS%60).toString().padStart(2,'0')}
+      </span>
+    {/if}
+  </div>
 
   {#if platform === 'win'}
     <!-- Windows: controls on the right -->
@@ -142,5 +150,11 @@
     font-size: 12px; font-weight: 500; color: var(--text-soft);
     letter-spacing: 0.01em;
     -webkit-app-region: drag;
+  }
+  .copilot-badge {
+    display: inline-flex; align-items: center; gap: 4px;
+    margin-left: 8px; padding: 2px 8px;
+    background: rgba(94,106,210,0.15); color: #5e6ad2;
+    border-radius: 10px; font-size: 10.5px; font-weight: 500;
   }
 </style>
