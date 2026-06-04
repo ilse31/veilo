@@ -3,6 +3,7 @@
   import { saveConfig, setAllContentProtected } from '$lib/tauri'
   import { settings } from '$lib/stores/settings.svelte'
   import { setServiceUrl } from './webviewManager'
+  import HotkeyRecorder from '$lib/components/HotkeyRecorder.svelte'
 
   let testing = $state<null | 'pending' | 'ok' | 'fail'>(null)
   let testMsg = $state('')
@@ -67,12 +68,17 @@
 
       // Persist to disk (what Config supports)
       await saveConfig({
-        site:       settings.urlClaude,
-        hotkey:     'Ctrl+Shift+Space',
-        language:   'id-ID',
-        opacity:    settings.opacity / 100,
-        autostart:  false,
-        position:   null,
+        site:                   settings.urlClaude,
+        hotkey:                 settings.hotkey,
+        language:               'id-ID',
+        opacity:                settings.opacity / 100,
+        autostart:              false,
+        position:               null,
+        stt_backend:            settings.sttBackend,
+        whisper_model:          settings.whisperModel,
+        copilot_context_s:      settings.copilotContextS,
+        copilot_auto_dismiss_s: settings.copilotAutoDismissS,
+        copilot_min_interval_s: settings.copilotMinIntervalS,
       })
 
       saved = true
@@ -82,10 +88,6 @@
     }
   }
 
-  const shortcuts = [
-    ['Tampilkan / sembunyikan jendela', 'Ctrl+Shift+Space'],
-    ['Pindah ke halaman berikutnya',    'Ctrl+]'],
-  ]
 </script>
 
 <div class="hub-page-scroll">
@@ -285,14 +287,117 @@
           <div class="t">Pintasan Keyboard</div>
           <div class="d">Akses cepat dari mana saja.</div>
         </div>
-        {#each shortcuts as [n, k]}
-          <div class="hub-s-row">
-            <div class="label-wrap"><div class="l-name">{n}</div></div>
-            <div class="field-wrap" style="flex-direction:row">
-              <span class="hub-hint-tag">{k}</span>
+        <div class="hub-s-row">
+          <div class="label-wrap">
+            <div class="l-name">Tampilkan / sembunyikan jendela</div>
+          </div>
+          <div class="field-wrap" style="flex-direction:row">
+            <HotkeyRecorder bind:value={settings.hotkey} />
+          </div>
+        </div>
+        <div class="hub-s-row">
+          <div class="label-wrap">
+            <div class="l-name">Ghost typing toggle</div>
+          </div>
+          <div class="field-wrap" style="flex-direction:row">
+            <span class="hub-hint-tag">Ctrl+Alt+G</span>
+          </div>
+        </div>
+        <div class="hub-s-row">
+          <div class="label-wrap">
+            <div class="l-name">Copilot session toggle</div>
+          </div>
+          <div class="field-wrap" style="flex-direction:row">
+            <span class="hub-hint-tag">Ctrl+Alt+L</span>
+          </div>
+        </div>
+        <div class="hub-s-row">
+          <div class="label-wrap">
+            <div class="l-name">Hide/show copilot card</div>
+          </div>
+          <div class="field-wrap" style="flex-direction:row">
+            <span class="hub-hint-tag">Ctrl+Alt+H</span>
+          </div>
+        </div>
+        <div class="hub-s-row">
+          <div class="label-wrap">
+            <div class="l-name">Force regenerate</div>
+          </div>
+          <div class="field-wrap" style="flex-direction:row">
+            <span class="hub-hint-tag">Ctrl+Alt+R</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Copilot -->
+      <div class="hub-s-section">
+        <div class="head">
+          <div class="t">Copilot</div>
+          <div class="d">Stealth assistant — capture audio system, transcribe, dan saran AI proaktif.</div>
+        </div>
+
+        <div class="hub-s-row">
+          <div class="label-wrap">
+            <div class="l-name">STT Backend</div>
+            <div class="l-desc">Engine speech-to-text. v1 hanya support Whisper Cloud.</div>
+          </div>
+          <div class="field-wrap">
+            <select class="hub-input" bind:value={settings.sttBackend}>
+              <option value="whisper-cloud">Whisper API (OpenAI)</option>
+              <option value="whisper-local" disabled>Whisper local (Coming soon)</option>
+              <option value="windows-sr" disabled>Windows Speech Recognition (Coming soon)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="hub-s-row">
+          <div class="label-wrap">
+            <div class="l-name">Whisper model</div>
+            <div class="l-desc">Nama model yang dipakai (Whisper API field "model").</div>
+          </div>
+          <div class="field-wrap">
+            <input class="hub-input" bind:value={settings.whisperModel} placeholder="whisper-1" />
+          </div>
+        </div>
+
+        <div class="hub-s-row">
+          <div class="label-wrap">
+            <div class="l-name">Context window (default)</div>
+            <div class="l-desc">Berapa detik transkrip yang dikirim ke AI tiap inference.</div>
+          </div>
+          <div class="field-wrap">
+            <div class="hub-range-row">
+              <input type="range" min="30" max="300" step="10" bind:value={settings.copilotContextS} />
+              <span class="v-val">{settings.copilotContextS}s</span>
             </div>
           </div>
-        {/each}
+        </div>
+
+        <div class="hub-s-row">
+          <div class="label-wrap">
+            <div class="l-name">Auto-dismiss card</div>
+            <div class="l-desc">Card otomatis tertutup setelah N detik (0 = tidak pernah).</div>
+          </div>
+          <div class="field-wrap">
+            <div class="hub-range-row">
+              <input type="range" min="0" max="60" step="1" bind:value={settings.copilotAutoDismissS} />
+              <span class="v-val">{settings.copilotAutoDismissS}s</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="hub-s-row">
+          <div class="label-wrap">
+            <div class="l-name">Min interval antar saran</div>
+            <div class="l-desc">Rate-limit: minimum detik antar LLM call. Hindari bill meledak.</div>
+          </div>
+          <div class="field-wrap">
+            <div class="hub-range-row">
+              <input type="range" min="2" max="15" step="1" bind:value={settings.copilotMinIntervalS} />
+              <span class="v-val">{settings.copilotMinIntervalS}s</span>
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- ── Save -->
