@@ -200,6 +200,53 @@ pub fn run() {
                     }
                 })?;
 
+            // Copilot: bring hub forward (Ctrl+Alt+L)
+            // Idle → user opens session modal from hub. Active → user can stop via panel.
+            let handle3 = app.handle().clone();
+            app.handle()
+                .global_shortcut()
+                .on_shortcut("Ctrl+Alt+L", move |_app, _shortcut, event| {
+                    if event.state == ShortcutState::Pressed {
+                        if let Some(w) = handle3.get_webview_window("ai-view") {
+                            crate::protection::show_no_activate(&w);
+                            let _ = w.set_focus();
+                        }
+                    }
+                })?;
+
+            // Copilot: hide/show floating card (Ctrl+Alt+H)
+            let handle4 = app.handle().clone();
+            app.handle()
+                .global_shortcut()
+                .on_shortcut("Ctrl+Alt+H", move |_app, _shortcut, event| {
+                    if event.state == ShortcutState::Pressed {
+                        if let Some(w) = handle4.get_webview_window("copilot-card") {
+                            let visible = crate::protection::is_os_visible(&w);
+                            if visible {
+                                crate::protection::hide_window(&w);
+                            } else {
+                                crate::protection::show_no_activate(&w);
+                            }
+                        }
+                    }
+                })?;
+
+            // Copilot: force regenerate suggestion (Ctrl+Alt+R)
+            let handle5 = app.handle().clone();
+            app.handle()
+                .global_shortcut()
+                .on_shortcut("Ctrl+Alt+R", move |_app, _shortcut, event| {
+                    if event.state == ShortcutState::Pressed {
+                        if let Some(state) = handle5.try_state::<crate::copilot::session::CopilotState>() {
+                            if let Ok(guard) = state.0.lock() {
+                                if let Some(session) = guard.as_ref() {
+                                    session.orchestrator.force_regenerate();
+                                }
+                            }
+                        }
+                    }
+                })?;
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

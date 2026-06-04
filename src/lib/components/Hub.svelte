@@ -69,6 +69,7 @@
     try {
       const cfg = await getConfig()
       settings.opacity = Math.round(cfg.opacity * 100)
+      settings.hotkey = cfg.hotkey
     } catch {}
     try {
       const name = await getProfileName()

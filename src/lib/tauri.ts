@@ -7,6 +7,11 @@ export interface Config {
   opacity: number
   autostart: boolean
   position: [number, number] | null
+  stt_backend:            string
+  whisper_model:          string
+  copilot_context_s:      number
+  copilot_auto_dismiss_s: number
+  copilot_min_interval_s: number
 }
 
 export const DEFAULT_CONFIG: Config = {
@@ -16,6 +21,11 @@ export const DEFAULT_CONFIG: Config = {
   opacity: 0.9,
   autostart: false,
   position: null,
+  stt_backend:            'whisper-cloud',
+  whisper_model:          'whisper-1',
+  copilot_context_s:      90,
+  copilot_auto_dismiss_s: 25,
+  copilot_min_interval_s: 4,
 }
 
 export async function getConfig(): Promise<Config> {

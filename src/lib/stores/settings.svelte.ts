@@ -5,6 +5,8 @@
 export const settings = $state({
   // Profile
   profileName: null as string | null,
+  // Hotkey
+  hotkey: 'Ctrl+Shift+Space',
   // AI API
   apiUrl:  'https://api.openai.com',
   apiKey:  '',
