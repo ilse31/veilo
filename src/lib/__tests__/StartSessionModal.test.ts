@@ -1,5 +1,5 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/svelte'
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/svelte'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 const fakePresets = [
   { id: 'generic', name: 'Generic Assistant', system_prompt: '...', response_format: 'Bullets', default_context_s: 90 },
@@ -18,6 +18,7 @@ import StartSessionModal from '$lib/components/copilot/StartSessionModal.svelte'
 
 describe('StartSessionModal', () => {
   beforeEach(() => vi.clearAllMocks())
+  afterEach(() => cleanup())
 
   it('renders preset options after loading', async () => {
     render(StartSessionModal, { props: {
