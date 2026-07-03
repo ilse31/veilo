@@ -18,6 +18,21 @@
   let save = $state(true)
   let error = $state('')
   let busy = $state(false)
+  let customContext = $state('')
+
+  function handleFileUpload(e: Event) {
+    const input = e.target as HTMLInputElement;
+    if (input.files && input.files[0]) {
+      const file = input.files[0];
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        if (event.target && typeof event.target.result === 'string') {
+          customContext = event.target.result;
+        }
+      };
+      reader.readAsText(file);
+    }
+  }
 
   onMount(async () => {
     presets = await copilotGetPresets()
@@ -40,7 +55,7 @@
     try {
       const sid = await copilotStartSession({
         presetId: selectedId, contextWindowS: contextS, save,
-        apiUrl, apiKey, model,
+        apiUrl, apiKey, model, customContext,
       })
       onStarted(sid)
     } catch (e) {
@@ -57,7 +72,7 @@
     <h3>Mulai Sesi Copilot</h3>
 
     <div class="field">
-      <label>Preset</label>
+      <span class="field-title" style="display: block; font-size: 12.5px; color: var(--text-soft); margin-bottom: 6px;">Preset</span>
       <div class="presets">
         {#each presets as p}
           <label class="preset-opt">
@@ -71,7 +86,23 @@
     </div>
 
     <div class="field">
-      <label>Context window: {contextS}s</label>
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+        <span class="field-title" style="font-size: 12.5px; color: var(--text-soft);">Context Latar Belakang (CV, Deskripsi Kerja, dll.)</span>
+        <label style="margin: 0; cursor: pointer; color: var(--accent, #5e6ad2); font-size: 11.5px; font-weight: 500;">
+          Upload .txt
+          <input type="file" accept=".txt" onchange={handleFileUpload} style="display: none;" />
+        </label>
+      </div>
+      <textarea 
+        class="hub-input" 
+        style="width: 100%; height: 75px; resize: none; font-size: 12px; font-family: inherit; box-sizing: border-box; padding: 8px; border: 1px solid var(--border); border-radius: 6px; background: rgba(255,255,255,0.02); color: inherit;"
+        bind:value={customContext} 
+        placeholder="Tempel CV, pertanyaan kisi-kisi wawancara, deskripsi pekerjaan, atau topik diskusi di sini untuk memandu asisten..."
+      ></textarea>
+    </div>
+
+    <div class="field">
+      <span class="field-title" style="display: block; font-size: 12.5px; color: var(--text-soft); margin-bottom: 6px;">Context window: {contextS}s</span>
       <input type="range" min="30" max="300" step="10" bind:value={contextS} />
     </div>
 

@@ -1,7 +1,7 @@
 use crate::config::{read_config, write_config, Config};
 use crate::stt::{start_stt, SttHandle};
 use std::sync::Mutex;
-use tauri::{AppHandle, Emitter, LogicalPosition, LogicalSize, Manager};
+use tauri::{AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Listener};
 
 pub struct SttState(pub Mutex<Option<SttHandle>>);
 
@@ -103,9 +103,58 @@ pub fn get_config(app: AppHandle) -> Result<Config, String> {
 
 /// Write config to disk.
 #[tauri::command]
-pub fn save_config(app: AppHandle, config: Config) -> Result<(), String> {
+pub fn save_config(app: AppHandle, mut config: Config) -> Result<(), String> {
     let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let old_config = read_config(&dir);
+
+    // 1. Dynamic hotkey registration
+    if old_config.hotkey != config.hotkey {
+        use tauri_plugin_global_shortcut::GlobalShortcutExt;
+
+        // Try to unregister the old hotkey
+        if let Ok(old_shortcut) = old_config.hotkey.parse::<tauri_plugin_global_shortcut::Shortcut>() {
+            let _ = app.global_shortcut().unregister(old_shortcut);
+        }
+
+        // Register the new hotkey
+        let handle = app.clone();
+        let new_hotkey = config.hotkey.clone();
+        app.global_shortcut()
+            .on_shortcut(new_hotkey.as_str(), move |_app, _shortcut, event| {
+                if event.state == tauri_plugin_global_shortcut::ShortcutState::Pressed {
+                    toggle_visibility(handle.clone());
+                }
+            })
+            .map_err(|e| format!("Gagal mendaftarkan hotkey baru '{}': {}", new_hotkey, e))?;
+    }
+
+    // 2. Autostart sync
+    use tauri_plugin_autostart::ManagerExt;
+    let autostart_manager = app.autolaunch();
+    if config.autostart {
+        let _ = autostart_manager.enable();
+    } else {
+        let _ = autostart_manager.disable();
+    }
+
+    // 3. Preserve window position if incoming is None
+    if config.position.is_none() {
+        config.position = old_config.position;
+    }
+
     write_config(&dir, &config)
+}
+
+/// Generic command to read value from SQLite profile table.
+#[tauri::command]
+pub fn get_profile_value(db: tauri::State<crate::db::Db>, key: String) -> Option<String> {
+    crate::db::get_value(&db, &key).unwrap_or(None)
+}
+
+/// Generic command to write value to SQLite profile table.
+#[tauri::command]
+pub fn set_profile_value(db: tauri::State<crate::db::Db>, key: String, value: String) -> Result<(), String> {
+    crate::db::set_value(&db, &key, &value).map_err(|e| e.to_string())
 }
 
 /// Navigate Window 1 (ai-view) to a new AI site URL.
@@ -125,10 +174,31 @@ pub fn set_site(app: AppHandle, site: String) -> Result<(), String> {
 }
 
 /// Compute the hub window's logical origin on screen (physical position ÷ scale factor).
+/// On Windows, we use ClientToScreen to obtain the exact screen coordinates of the client area's top-left corner,
+/// which correctly accounts for native maximize borders and margins.
 fn hub_logical_origin(app: &AppHandle) -> Result<(f64, f64), String> {
     let hub = app
         .get_webview_window("ai-view")
         .ok_or_else(|| "hub window not found".to_string())?;
+
+    #[cfg(windows)]
+    {
+        use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+        if let Ok(handle) = hub.window_handle() {
+            if let RawWindowHandle::Win32(h) = handle.as_raw() {
+                let hwnd = windows::Win32::Foundation::HWND(h.hwnd.get() as *mut core::ffi::c_void);
+                let mut point = windows::Win32::Foundation::POINT { x: 0, y: 0 };
+                unsafe {
+                    use windows::Win32::Graphics::Gdi::ClientToScreen;
+                    if ClientToScreen(hwnd, &mut point).as_bool() {
+                        let scale = hub.scale_factor().map_err(|e| e.to_string())?;
+                        return Ok((point.x as f64 / scale, point.y as f64 / scale));
+                    }
+                }
+            }
+        }
+    }
+
     let phys = hub.outer_position().map_err(|e| e.to_string())?;
     let scale = hub.scale_factor().map_err(|e| e.to_string())?;
     Ok((phys.x as f64 / scale, phys.y as f64 / scale))
@@ -149,6 +219,16 @@ pub fn open_service_webview(
     width: f64,
     height: f64,
 ) -> Result<(), String> {
+    if width <= 0.0 || height <= 0.0 {
+        return Ok(());
+    }
+
+    if let Some(hub) = app.get_webview_window("ai-view") {
+        if hub.is_minimized().unwrap_or(false) || !crate::protection::is_os_visible(&hub) {
+            return Ok(());
+        }
+    }
+
     let label = format!("svc-{service}");
 
     let (hub_lx, hub_ly) = hub_logical_origin(&app)?;
@@ -207,6 +287,16 @@ pub fn resize_service_webview(
     width: f64,
     height: f64,
 ) -> Result<(), String> {
+    if width <= 0.0 || height <= 0.0 {
+        return Ok(());
+    }
+
+    if let Some(hub) = app.get_webview_window("ai-view") {
+        if hub.is_minimized().unwrap_or(false) || !crate::protection::is_os_visible(&hub) {
+            return Ok(());
+        }
+    }
+
     let label = format!("svc-{service}");
 
     let (hub_lx, hub_ly) = hub_logical_origin(&app)?;
@@ -360,6 +450,11 @@ pub fn set_click_through(app: AppHandle, enabled: bool) -> Result<(), String> {
 
 // ── Copilot commands ─────────────────────────────────────────────────────────
 
+/// Convert config stt_language ("" = auto-detect → None, "en" → Some("en")).
+fn stt_language_opt(lang: &str) -> Option<String> {
+    if lang.is_empty() { None } else { Some(lang.to_string()) }
+}
+
 use std::sync::Arc;
 use crate::copilot::orchestrator::Orchestrator;
 use crate::copilot::preset::{builtin_presets, find_preset, Preset};
@@ -387,6 +482,7 @@ pub async fn copilot_start_session(
     api_url: String,
     api_key: String,
     model: String,
+    custom_context: String,
 ) -> Result<i64, String> {
     {
         let guard = state.0.lock().map_err(|e| e.to_string())?;
@@ -405,30 +501,56 @@ pub async fn copilot_start_session(
     let mut audio = crate::copilot::audio::start_loopback()?;
     let audio_rx = audio.take_rx().ok_or_else(|| "audio rx already taken".to_string())?;
 
-    let mut stt = Box::new(WhisperCloudStt::new(
-        api_url.clone(), api_key.clone(), "whisper-1".into(),
-    ));
+    let mut stt: Box<dyn SttBackend> = match app_cfg.stt_backend.as_str() {
+        "whisper-local" => {
+            let local_url = if app_cfg.whisper_local_url.is_empty() {
+                "http://localhost:8080".to_string()
+            } else {
+                app_cfg.whisper_local_url.clone()
+            };
+            let model_name = if app_cfg.whisper_model.is_empty() {
+                "whisper-1".to_string()
+            } else {
+                app_cfg.whisper_model.clone()
+            };
+            let mut whisper_stt = WhisperCloudStt::new(local_url, api_key.clone(), model_name);
+            whisper_stt.language = stt_language_opt(&app_cfg.stt_language);
+            Box::new(whisper_stt)
+        }
+        "windows-sr" => {
+            Box::new(crate::copilot::stt::windows_sr::WindowsSrStt::new())
+        }
+        _ => {
+            let cloud_url = if api_url.is_empty() { "https://api.openai.com".to_string() } else { api_url.clone() };
+            let model_name = if app_cfg.whisper_model.is_empty() { "whisper-1".to_string() } else { app_cfg.whisper_model.clone() };
+            let mut whisper_stt = WhisperCloudStt::new(cloud_url, api_key.clone(), model_name);
+            whisper_stt.language = stt_language_opt(&app_cfg.stt_language);
+            Box::new(whisper_stt)
+        }
+    };
     stt.start(sid, audio_rx, app.clone())?;
 
     let mut orch_cfg = crate::copilot::session::build_orchestrator_config(
-        sid, preset.clone(), context_window_s, save, &app_cfg,
+        sid, preset.clone(), context_window_s, save, custom_context, &app_cfg,
     );
     orch_cfg.api_url = api_url;
     orch_cfg.api_key = api_key;
     orch_cfg.model   = model;
     let orchestrator = Arc::new(Orchestrator::new(orch_cfg));
-    orchestrator.clone().start(app.clone());
+    let (orchestrator_handle, listener_id) = orchestrator.clone().start(app.clone());
 
     {
         let mut guard = state.0.lock().map_err(|e| e.to_string())?;
         *guard = Some(ActiveSession {
-            id:           sid,
-            preset_id:    preset_id.clone(),
-            started_at:   chrono::Utc::now().timestamp(),
+            id:                  sid,
+            preset_id:           preset_id.clone(),
+            started_at:          chrono::Utc::now().timestamp(),
             save,
             audio,
             stt,
             orchestrator,
+            orchestrator_handle,
+            listener_id,
         });
     }
 
@@ -444,10 +566,10 @@ pub async fn copilot_start_session(
 }
 
 #[tauri::command]
-pub fn copilot_stop_session(
+pub async fn copilot_stop_session(
     app: AppHandle,
-    state: tauri::State<CopilotState>,
-    db: tauri::State<crate::db::Db>,
+    state: tauri::State<'_, CopilotState>,
+    db: tauri::State<'_, crate::db::Db>,
 ) -> Result<(), String> {
     let session = {
         let mut guard = state.0.lock().map_err(|e| e.to_string())?;
@@ -457,7 +579,8 @@ pub fn copilot_stop_session(
 
     session.audio.stop();
     session.stt.stop();
-    // orchestrator task runs until app exit; tokio cleans up on shutdown.
+    session.orchestrator_handle.abort();
+    app.unlisten(session.listener_id);
 
     let _ = crate::db::end_copilot_session(&db, session.id);
     if !session.save {
@@ -486,6 +609,21 @@ pub fn copilot_list_sessions(
     db: tauri::State<crate::db::Db>,
 ) -> Result<Vec<crate::db::CopilotSessionRow>, String> {
     crate::db::list_copilot_sessions(&db).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn copilot_set_custom_instruction(
+    state: tauri::State<'_, CopilotState>,
+    instruction: String,
+) -> Result<(), String> {
+    let guard = state.0.lock().map_err(|e| e.to_string())?;
+    if let Some(session) = guard.as_ref() {
+        if let Ok(mut inst_lock) = session.orchestrator.custom_instruction.lock() {
+            *inst_lock = instruction;
+        }
+        session.orchestrator.force_regenerate();
+    }
+    Ok(())
 }
 
 #[cfg(test)]

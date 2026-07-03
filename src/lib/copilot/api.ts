@@ -40,6 +40,7 @@ export async function copilotStartSession(args: {
   apiUrl:          string
   apiKey:          string
   model:           string
+  customContext:   string
 }): Promise<number> {
   return invoke<number>('copilot_start_session', {
     presetId:       args.presetId,
@@ -48,7 +49,12 @@ export async function copilotStartSession(args: {
     apiUrl:         args.apiUrl,
     apiKey:         args.apiKey,
     model:          args.model,
+    customContext:  args.customContext,
   })
+}
+
+export async function copilotSetCustomInstruction(instruction: string): Promise<void> {
+  return invoke('copilot_set_custom_instruction', { instruction })
 }
 
 export async function copilotStopSession(): Promise<void> {

@@ -170,7 +170,7 @@ impl SttBackend for WhisperCloudStt {
 
     fn stop(self: Box<Self>) {
         let handle = self.join_handle.clone();
-        tokio::spawn(async move {
+        tauri::async_runtime::spawn(async move {
             if let Some(h) = handle.lock().await.take() { h.abort(); }
         });
     }

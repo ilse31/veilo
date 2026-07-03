@@ -9,9 +9,11 @@ export interface Config {
   position: [number, number] | null
   stt_backend:            string
   whisper_model:          string
+  whisper_local_url:      string
   copilot_context_s:      number
   copilot_auto_dismiss_s: number
   copilot_min_interval_s: number
+  stt_language:           string
 }
 
 export const DEFAULT_CONFIG: Config = {
@@ -23,9 +25,11 @@ export const DEFAULT_CONFIG: Config = {
   position: null,
   stt_backend:            'whisper-cloud',
   whisper_model:          'whisper-1',
+  whisper_local_url:      'http://localhost:8080',
   copilot_context_s:      90,
   copilot_auto_dismiss_s: 25,
   copilot_min_interval_s: 4,
+  stt_language:           '',
 }
 
 export async function getConfig(): Promise<Config> {
@@ -91,6 +95,14 @@ export async function getProfileName(): Promise<string | null> {
 
 export async function setProfileName(name: string): Promise<void> {
   return invoke('set_profile_name', { name })
+}
+
+export async function getProfileValue(key: string): Promise<string | null> {
+  return invoke<string | null>('get_profile_value', { key })
+}
+
+export async function setProfileValue(key: string, value: string): Promise<void> {
+  return invoke('set_profile_value', { key, value })
 }
 
 // ── Chat history ─────────────────────────────────────────────────────────────

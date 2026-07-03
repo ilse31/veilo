@@ -14,12 +14,16 @@ pub struct Config {
     pub stt_backend:            String,
     #[serde(default = "default_whisper_model")]
     pub whisper_model:          String,
+    #[serde(default = "default_whisper_local_url")]
+    pub whisper_local_url:      String,
     #[serde(default = "default_copilot_context_s")]
     pub copilot_context_s:      u64,
     #[serde(default = "default_copilot_auto_dismiss_s")]
     pub copilot_auto_dismiss_s: u64,
     #[serde(default = "default_copilot_min_interval_s")]
     pub copilot_min_interval_s: u64,
+    #[serde(default)]
+    pub stt_language: String,
 }
 
 impl Default for Config {
@@ -33,15 +37,18 @@ impl Default for Config {
             position: None,
             stt_backend:            "whisper-cloud".into(),
             whisper_model:          "whisper-1".into(),
+            whisper_local_url:      "http://localhost:8080".into(),
             copilot_context_s:      90,
             copilot_auto_dismiss_s: 25,
             copilot_min_interval_s: 4,
+            stt_language:           String::new(),
         }
     }
 }
 
 fn default_stt_backend()            -> String { "whisper-cloud".into() }
 fn default_whisper_model()          -> String { "whisper-1".into() }
+fn default_whisper_local_url()      -> String { "http://localhost:8080".into() }
 fn default_copilot_context_s()      -> u64    { 90 }
 fn default_copilot_auto_dismiss_s() -> u64    { 25 }
 fn default_copilot_min_interval_s() -> u64    { 4 }
@@ -95,6 +102,7 @@ mod tests {
             position: Some((100, 200)),
             stt_backend: "whisper-cloud".into(),
             whisper_model: "whisper-1".into(),
+            whisper_local_url: "http://localhost:8080".into(),
             copilot_context_s: 90,
             copilot_auto_dismiss_s: 25,
             copilot_min_interval_s: 4,

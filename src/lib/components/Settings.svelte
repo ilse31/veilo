@@ -63,7 +63,7 @@
   <div class="mb-5">
     <p class="text-xs text-gray-400 mb-2 uppercase tracking-wide">Global Hotkey</p>
     <HotkeyRecorder bind:value={form.hotkey} />
-    <p class="text-xs text-gray-500 mt-1">Hotkey change takes effect on next app restart.</p>
+    <p class="text-xs text-gray-500 mt-1">Hotkey change takes effect immediately.</p>
   </div>
 
   <div class="mb-5">

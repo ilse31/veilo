@@ -35,6 +35,7 @@ pub struct OrchestratorConfig {
     pub api_key:          String,
     pub model:            String,
     pub save_transcript:  bool,
+    pub custom_context:   String,
 }
 
 pub struct Orchestrator {
@@ -42,6 +43,7 @@ pub struct Orchestrator {
     pub buffer: Arc<Mutex<TranscriptBuffer>>,
     pub last_trigger: Arc<Mutex<Option<Instant>>>,
     pub last_chunk_at: Arc<Mutex<Option<Instant>>>,
+    pub custom_instruction: Arc<Mutex<String>>,
     force_tx: mpsc::UnboundedSender<()>,
     force_rx: Arc<Mutex<Option<mpsc::UnboundedReceiver<()>>>>,
 }
@@ -55,6 +57,7 @@ impl Orchestrator {
             buffer: Arc::new(Mutex::new(TranscriptBuffer::new(max_age))),
             last_trigger: Arc::new(Mutex::new(None)),
             last_chunk_at: Arc::new(Mutex::new(None)),
+            custom_instruction: Arc::new(Mutex::new(String::new())),
             force_tx,
             force_rx: Arc::new(Mutex::new(Some(force_rx))),
         }
@@ -65,47 +68,62 @@ impl Orchestrator {
         let _ = self.force_tx.send(());
     }
 
-    /// Spawn the orchestrator task. Returns immediately.
-    pub fn start(self: Arc<Self>, app: AppHandle) {
+    /// Spawn the orchestrator task. Returns the JoinHandle and EventId.
+    pub fn start(self: Arc<Self>, app: AppHandle) -> (tokio::task::JoinHandle<()>, tauri::EventId) {
         let me = self.clone();
-        tokio::spawn(async move {
-            let _listener = app.listen(
-                "copilot-transcript-final",
-                {
-                    let me = me.clone();
-                    move |event| {
-                        if let Ok(chunk) = serde_json::from_str::<TranscriptChunk>(event.payload()) {
-                            if chunk.session_id == me.config.session_id {
-                                me.buffer.lock().unwrap().append(chunk);
-                                *me.last_chunk_at.lock().unwrap() = Some(Instant::now());
+        let app_clone = app.clone();
+
+        let listener_id = app.listen(
+            "copilot-transcript-final",
+            {
+                let me = me.clone();
+                move |event| {
+                    if let Ok(chunk) = serde_json::from_str::<TranscriptChunk>(event.payload()) {
+                        if chunk.session_id == me.config.session_id {
+                            if let Ok(mut buf_guard) = me.buffer.lock() {
+                                buf_guard.append(chunk);
+                            }
+                            if let Ok(mut last_chunk_guard) = me.last_chunk_at.lock() {
+                                *last_chunk_guard = Some(Instant::now());
                             }
                         }
                     }
-                },
-            );
+                }
+            },
+        );
 
-            let mut force_rx = me.force_rx.lock().unwrap().take()
-                .expect("Orchestrator::start called more than once");
+        let force_rx = me.force_rx.lock().unwrap().take()
+            .expect("Orchestrator::start called more than once");
 
+        let handle = tokio::spawn(async move {
+            let mut force_rx = force_rx;
             loop {
                 tokio::select! {
                     _ = sleep(Duration::from_millis(200)) => {
-                        let has_new = !me.buffer.lock().unwrap().since_last_trigger().is_empty();
+                        let has_new = if let Ok(buf_guard) = me.buffer.lock() {
+                            !buf_guard.since_last_trigger().is_empty()
+                        } else {
+                            false
+                        };
                         if !has_new { continue; }
-                        // Wait for debounce_ms of silence since last chunk
-                        let elapsed_since_chunk = me.last_chunk_at.lock().unwrap()
-                            .map(|t| t.elapsed())
-                            .unwrap_or(Duration::ZERO);
+
+                        let elapsed_since_chunk = if let Ok(last_chunk_guard) = me.last_chunk_at.lock() {
+                            last_chunk_guard.map(|t| t.elapsed()).unwrap_or(Duration::ZERO)
+                        } else {
+                            Duration::ZERO
+                        };
                         if elapsed_since_chunk < Duration::from_millis(me.config.debounce_ms) { continue; }
                         if me.is_rate_limited() { continue; }
-                        me.trigger(&app).await;
+                        me.trigger(&app_clone).await;
                     }
                     Some(()) = force_rx.recv() => {
-                        me.trigger(&app).await;
+                        me.trigger(&app_clone).await;
                     }
                 }
             }
         });
+
+        (handle, listener_id)
     }
 
     pub fn is_rate_limited(&self) -> bool {
@@ -117,10 +135,19 @@ impl Orchestrator {
     }
 
     pub fn build_messages(&self, context_text: &str) -> Vec<serde_json::Value> {
+        let mut system_prompt = self.config.preset.system_prompt.clone();
+        if !self.config.custom_context.is_empty() {
+            system_prompt.push_str(&format!("\n\nUser Background Context (e.g. CV / Interview Info):\n{}", self.config.custom_context));
+        }
+        if let Ok(inst_lock) = self.custom_instruction.lock() {
+            if !inst_lock.is_empty() {
+                system_prompt.push_str(&format!("\n\nCustom Real-time Instruction:\n{}", *inst_lock));
+            }
+        }
         vec![
             serde_json::json!({
                 "role": "system",
-                "content": self.config.preset.system_prompt,
+                "content": system_prompt,
             }),
             serde_json::json!({
                 "role": "user",
@@ -230,6 +257,7 @@ mod tests {
             api_key:          "test".into(),
             model:            "gpt-4o-mini".into(),
             save_transcript:  false,
+            custom_context:   String::new(),
         }
     }
 

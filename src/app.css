@@ -6,6 +6,16 @@
 * { scrollbar-width: none; }
 *::-webkit-scrollbar { display: none; }
 
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+  overscroll-behavior: none;
+}
+
 /* ─────────────────────────────────────────────────────────────
    no-screen design system — Linear-inspired light UI
    ───────────────────────────────────────────────────────────── */

@@ -17,6 +17,7 @@ export const settings = $state({
   stealth:          false,
   dark:             false,
   contentProtected: true,   // hidden from screen capture by default
+  autostart:        false,
   // Webview URLs
   urlGpt:       'https://chat.openai.com',
   urlClaude:    'https://claude.ai',
@@ -25,6 +26,8 @@ export const settings = $state({
   copilotContextS:      90,
   copilotAutoDismissS:  25,
   copilotMinIntervalS:  4,
-  sttBackend:           'whisper-cloud' as const,
+  sttBackend:           'whisper-cloud' as 'whisper-cloud' | 'whisper-local' | 'windows-sr',
   whisperModel:         'whisper-1',
+  whisperLocalUrl:      'http://localhost:8080',
+  sttLanguage:          '',   // '' = auto-detect; 'en', 'ja', 'id', etc.
 })

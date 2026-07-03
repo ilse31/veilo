@@ -4,6 +4,15 @@
   import { invoke } from '@tauri-apps/api/core'
   import { getCurrentWindow } from '@tauri-apps/api/window'
   import { settings } from '$lib/stores/settings.svelte'
+  import { copilotSetCustomInstruction } from '$lib/copilot/api'
+  import { marked } from 'marked'
+  import DOMPurify from 'dompurify'
+
+  marked.setOptions({ breaks: true, gfm: true })
+
+  function renderMd(text: string): string {
+    return DOMPurify.sanitize(marked.parse(text) as string)
+  }
 
   type Format = 'Bullets' | 'Headline' | 'Code'
   interface Suggestion {
@@ -18,8 +27,24 @@
   let activeIdx = $state(0)
   let pinned = $state(false)
   let pulse = $state(false)
+  let instText = $state('')
 
   const current = $derived(history[activeIdx] ?? null)
+
+  async function submitInstruction() {
+    try {
+      await copilotSetCustomInstruction(instText.trim())
+      regenerate()
+    } catch (e) {
+      console.error(e)
+    }
+  }
+
+  function handleInstKeydown(e: KeyboardEvent) {
+    if (e.key === 'Enter') {
+      submitInstruction()
+    }
+  }
 
   onMount(() => {
     let unsubs: Array<() => void> = []
@@ -70,8 +95,12 @@
   function copy() {
     if (current) navigator.clipboard.writeText(current.text)
   }
-  function dismiss() {
-    getCurrentWindow().hide()
+  async function dismiss() {
+    try {
+      await invoke('copilot_stop_session')
+    } catch (e) {
+      console.error('Failed to stop copilot session on close:', e)
+    }
   }
   function regenerate() {
     invoke('copilot_force_regenerate')
@@ -90,14 +119,23 @@
   <div class="body">
     {#if !current}
       <div class="empty">Menunggu suara…</div>
-    {:else if current.format === 'Headline'}
-      <h2 class="headline">{current.text.split('\n')[0]}</h2>
-      <p class="detail">{current.text.split('\n').slice(1).join('\n')}</p>
     {:else if current.format === 'Code'}
       <pre class="code">{current.text}</pre>
     {:else}
-      <div class="bullets">{current.text}</div>
+      <div class="md">{@html renderMd(current.text)}</div>
     {/if}
+  </div>
+
+  <!-- Real-time instructions -->
+  <div class="inst-box">
+    <input 
+      type="text" 
+      bind:value={instText} 
+      onkeydown={handleInstKeydown}
+      placeholder="Ketik instruksi khusus (misal: 'buat code saja')..." 
+      class="inst-input"
+    />
+    <button onclick={submitInstruction} class="inst-send" title="Kirim instruksi">➔</button>
   </div>
 
   <div class="footer">
@@ -148,12 +186,29 @@
   .x { background: none; border: none; color: #888; cursor: pointer; font-size: 14px; }
   .body { flex: 1; padding: 12px 14px; overflow-y: auto; font-size: 13px; line-height: 1.5; }
   .empty { color: #666; font-style: italic; text-align: center; padding-top: 40px; }
-  .headline { font-size: 18px; margin: 0 0 8px; }
-  .detail { color: #b8b8c0; font-size: 12px; margin: 0; }
   .code { background: rgba(255,255,255,0.04); padding: 8px; border-radius: 6px;
           font-family: "Consolas", monospace; font-size: 12px;
           white-space: pre-wrap; overflow-x: auto; }
-  .bullets { white-space: pre-wrap; }
+  .md :global(p)          { margin: 0 0 8px; }
+  .md :global(p:last-child){ margin-bottom: 0; }
+  .md :global(ul), .md :global(ol) { margin: 0 0 8px; padding-left: 18px; }
+  .md :global(li)         { margin-bottom: 3px; }
+  .md :global(strong)     { color: #fff; font-weight: 600; }
+  .md :global(em)         { color: #c8c8d4; }
+  .md :global(code)       { background: rgba(255,255,255,0.08); padding: 1px 5px;
+                             border-radius: 3px; font-family: "Consolas", monospace;
+                             font-size: 11.5px; color: #a8daff; }
+  .md :global(pre)        { background: rgba(255,255,255,0.04); padding: 8px;
+                             border-radius: 6px; overflow-x: auto; margin: 0 0 8px; }
+  .md :global(pre code)   { background: none; padding: 0; color: #e5e5ea;
+                             font-size: 12px; }
+  .md :global(h1), .md :global(h2), .md :global(h3) {
+                             margin: 0 0 6px; font-weight: 600; color: #fff; }
+  .md :global(h1)         { font-size: 16px; }
+  .md :global(h2)         { font-size: 14px; }
+  .md :global(h3)         { font-size: 13px; }
+  .md :global(blockquote) { border-left: 3px solid rgba(94,106,210,0.6);
+                             margin: 0 0 8px; padding-left: 10px; color: #b8b8c0; }
   .footer { display: flex; justify-content: space-between; align-items: center;
             padding: 6px 12px; border-top: 1px solid rgba(255,255,255,0.06);
             font-size: 11px; }
@@ -163,4 +218,44 @@
   }
   .nav button:hover, .actions button:hover { background: rgba(255,255,255,0.06); }
   .actions button.active { color: #5e6ad2; }
+
+  /* Real-time instructions style */
+  .inst-box {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 12px;
+    border-top: 1px solid rgba(255,255,255,0.06);
+    background: rgba(0,0,0,0.15);
+  }
+  .inst-input {
+    flex: 1;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 6px;
+    padding: 6px 10px;
+    color: #e5e5ea;
+    font-size: 11.5px;
+    outline: none;
+    transition: all 0.15s ease;
+    box-sizing: border-box;
+  }
+  .inst-input:focus {
+    border-color: rgba(94,106,210,0.5);
+    background: rgba(255,255,255,0.07);
+  }
+  .inst-send {
+    background: none;
+    border: none;
+    color: #b8b8c0;
+    font-size: 12px;
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 4px;
+    transition: all 0.15s ease;
+  }
+  .inst-send:hover {
+    color: #e5e5ea;
+    background: rgba(255,255,255,0.06);
+  }
 </style>

@@ -1,4 +1,5 @@
 pub mod whisper_cloud;
+pub mod windows_sr;
 
 use tauri::AppHandle;
 use tokio::sync::mpsc;

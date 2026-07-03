@@ -92,13 +92,24 @@ pub fn run() {
             let cfg = config::read_config(&app_data_dir);
             let hotkey = cfg.hotkey.clone();
 
+            // Sync autostart on startup
+            {
+                use tauri_plugin_autostart::ManagerExt;
+                let autostart_manager = app.autolaunch();
+                if cfg.autostart {
+                    let _ = autostart_manager.enable();
+                } else {
+                    let _ = autostart_manager.disable();
+                }
+            }
+
             // Window 1: Hub (main app UI)
             let hub_url = if cfg!(debug_assertions) {
                 WebviewUrl::External("http://localhost:1420".parse()?)
             } else {
                 WebviewUrl::App("index.html".into())
             };
-            let ai_view = WebviewWindowBuilder::new(
+            let mut ai_view_builder = WebviewWindowBuilder::new(
                 app,
                 "ai-view",
                 hub_url,
@@ -110,10 +121,51 @@ pub fn run() {
             .skip_taskbar(true)
             .inner_size(1200.0, 820.0)
             .min_inner_size(900.0, 600.0)
-            .center()
-            .resizable(true)
-            .build()?;
+            .resizable(true);
+
+            if let Some((x, y)) = cfg.position {
+                ai_view_builder = ai_view_builder.position(x as f64, y as f64);
+            } else {
+                ai_view_builder = ai_view_builder.center();
+            }
+
+            let ai_view = ai_view_builder.build()?;
             protection::apply(&ai_view);
+
+            // Listen to Moved event and save position with 500ms debounce
+            {
+                let ai_view_clone = ai_view.clone();
+                let app_handle = app.handle().clone();
+                let move_counter = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+
+                ai_view.on_window_event(move |event| {
+                    if let tauri::WindowEvent::Moved(pos) = event {
+                        let is_normal = ai_view_clone.is_maximized().unwrap_or(false) == false 
+                                     && ai_view_clone.is_minimized().unwrap_or(false) == false;
+                        if is_normal {
+                            if let Ok(scale) = ai_view_clone.scale_factor() {
+                                let logical_x = (pos.x as f64 / scale) as i32;
+                                let logical_y = (pos.y as f64 / scale) as i32;
+
+                                let version = move_counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+                                let move_counter_clone = move_counter.clone();
+                                let app_handle_clone = app_handle.clone();
+
+                                tauri::async_runtime::spawn(async move {
+                                    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                                    if move_counter_clone.load(std::sync::atomic::Ordering::SeqCst) == version {
+                                        if let Ok(dir) = app_handle_clone.path().app_data_dir() {
+                                            let mut cfg = config::read_config(&dir);
+                                            cfg.position = Some((logical_x, logical_y));
+                                            let _ = config::write_config(&dir, &cfg);
+                                        }
+                                    }
+                                });
+                            }
+                        }
+                    }
+                });
+            }
 
             // Window 2: Settings
             let settings_url = if cfg!(debug_assertions) {
@@ -130,6 +182,17 @@ pub fn run() {
                 .visible(false)
                 .build()?;
             protection::apply(&settings_win);
+
+            // Prevent Settings window from destroying itself on close
+            {
+                let settings_win_clone = settings_win.clone();
+                settings_win.on_window_event(move |event| {
+                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                        api.prevent_close();
+                        let _ = settings_win_clone.hide();
+                    }
+                });
+            }
 
             // Window 3: Copilot floating answer card (created hidden, shown when session starts)
             let card_url = if cfg!(debug_assertions) {
@@ -150,6 +213,28 @@ pub fn run() {
                 .visible(false)
                 .build()?;
             protection::apply(&copilot_card);
+
+            // Prevent Copilot Card window from destroying itself on close and stop the session
+            {
+                let copilot_card_clone = copilot_card.clone();
+                let app_handle = app.handle().clone();
+                copilot_card.on_window_event(move |event| {
+                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                        api.prevent_close();
+                        let _ = copilot_card_clone.hide();
+
+                        // Stop the active copilot session when window is closed
+                        let app_clone = app_handle.clone();
+                        tauri::async_runtime::spawn(async move {
+                            let state = app_clone.try_state::<crate::copilot::session::CopilotState>();
+                            let db = app_clone.try_state::<crate::db::Db>();
+                            if let (Some(state), Some(db)) = (state, db) {
+                                let _ = commands::copilot_stop_session(app_clone.clone(), state, db).await;
+                            }
+                        });
+                    }
+                });
+            }
 
             // Service windows (pre-created hidden; shown/repositioned on demand)
             for (service, url_str) in [
@@ -280,6 +365,9 @@ pub fn run() {
             commands::copilot_stop_session,
             commands::copilot_force_regenerate,
             commands::copilot_list_sessions,
+            commands::get_profile_value,
+            commands::set_profile_value,
+            commands::copilot_set_custom_instruction,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -64,6 +64,7 @@ export async function hideService(service: Service): Promise<void> {
 export async function resizeService(service: Service, contentEl: HTMLElement): Promise<void> {
   if (!opened.has(service)) return
   const rect = contentEl.getBoundingClientRect()
+  if (rect.width === 0 || rect.height === 0) return
   await resizeServiceWebview(service, rect.left, rect.top, rect.width, rect.height)
 }
 

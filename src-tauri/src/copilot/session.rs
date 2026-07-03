@@ -9,13 +9,15 @@ use crate::copilot::preset::Preset;
 use crate::copilot::stt::SttBackend;
 
 pub struct ActiveSession {
-    pub id:           i64,
-    pub preset_id:    String,
-    pub started_at:   i64,
-    pub save:         bool,
-    pub audio:        AudioCapture,
-    pub stt:          Box<dyn SttBackend>,
-    pub orchestrator: Arc<Orchestrator>,
+    pub id:                  i64,
+    pub preset_id:           String,
+    pub started_at:          i64,
+    pub save:                bool,
+    pub audio:               AudioCapture,
+    pub stt:                 Box<dyn SttBackend>,
+    pub orchestrator:        Arc<Orchestrator>,
+    pub orchestrator_handle: tokio::task::JoinHandle<()>,
+    pub listener_id:         tauri::EventId,
 }
 
 pub struct CopilotState(pub Mutex<Option<ActiveSession>>);
@@ -48,6 +50,7 @@ pub fn build_orchestrator_config(
     preset: Preset,
     context_window_s: u64,
     save_transcript: bool,
+    custom_context: String,
     app_cfg: &crate::config::Config,
 ) -> OrchestratorConfig {
     OrchestratorConfig {
@@ -60,6 +63,7 @@ pub fn build_orchestrator_config(
         api_key:         String::new(),
         model:           app_cfg.whisper_model.clone(),
         save_transcript,
+        custom_context,
     }
 }
 
@@ -74,7 +78,7 @@ mod tests {
         let mut cfg = Config::default();
         cfg.copilot_min_interval_s = 7;
         let preset = builtin_presets()[0].clone();
-        let o = build_orchestrator_config(42, preset, 60, true, &cfg);
+        let o = build_orchestrator_config(42, preset, 60, true, String::new(), &cfg);
         assert_eq!(o.session_id, 42);
         assert_eq!(o.min_interval_s, 7);
         assert_eq!(o.context_window_s, 60);

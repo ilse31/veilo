@@ -8,7 +8,7 @@
   import HubSettings from './hub/HubSettings.svelte'
   import Onboarding from './hub/Onboarding.svelte'
   import GhostTypingBar from './hub/GhostTypingBar.svelte'
-  import { getConfig, getProfileName, injectToService } from '$lib/tauri'
+  import { getConfig, getProfileName, injectToService, getProfileValue } from '$lib/tauri'
   import { settings } from '$lib/stores/settings.svelte'
   import CopilotPanel from './copilot/CopilotPanel.svelte'
   import StartSessionModal from './copilot/StartSessionModal.svelte'
@@ -57,11 +57,13 @@
   const platform = navigator.userAgent.includes('Windows') ? 'win' : 'mac'
 
   // Sync ghost typing state with Rust (global hotkey Ctrl+Alt+G emits this event)
-  onMount(async () => {
-    const unlisten = await listen<boolean>('ghost-typing-state', ({ payload }) => {
+  onMount(() => {
+    const unlistenPromise = listen<boolean>('ghost-typing-state', ({ payload }) => {
       ghostActive = payload
     })
-    return unlisten
+    return () => {
+      unlistenPromise.then(unlisten => unlisten())
+    }
   })
 
   // Load persisted config and profile on startup
@@ -70,7 +72,27 @@
       const cfg = await getConfig()
       settings.opacity = Math.round(cfg.opacity * 100)
       settings.hotkey = cfg.hotkey
+      settings.autostart = cfg.autostart
+      if (cfg.copilot_context_s) settings.copilotContextS = cfg.copilot_context_s
+      if (cfg.copilot_auto_dismiss_s) settings.copilotAutoDismissS = cfg.copilot_auto_dismiss_s
+      if (cfg.copilot_min_interval_s) settings.copilotMinIntervalS = cfg.copilot_min_interval_s
+      if (cfg.stt_backend) settings.sttBackend = cfg.stt_backend as any
+      if (cfg.whisper_model) settings.whisperModel = cfg.whisper_model
+      if (cfg.whisper_local_url) settings.whisperLocalUrl = cfg.whisper_local_url
+      settings.sttLanguage = cfg.stt_language ?? ''
     } catch {}
+    try {
+      const apiKey = await getProfileValue('api_key')
+      if (apiKey) settings.apiKey = apiKey
+      
+      const apiUrl = await getProfileValue('api_url')
+      if (apiUrl) settings.apiUrl = apiUrl
+      
+      const model = await getProfileValue('model')
+      if (model) settings.model = model
+    } catch (e) {
+      console.error('Failed to load API credentials', e)
+    }
     try {
       const name = await getProfileName()
       if (name) {

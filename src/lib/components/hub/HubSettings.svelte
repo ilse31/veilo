@@ -1,6 +1,6 @@
 <script lang="ts">
   import { getCurrentWindow } from '@tauri-apps/api/window'
-  import { saveConfig, setAllContentProtected } from '$lib/tauri'
+  import { saveConfig, setAllContentProtected, setProfileValue } from '$lib/tauri'
   import { settings } from '$lib/stores/settings.svelte'
   import { setServiceUrl } from './webviewManager'
   import HotkeyRecorder from '$lib/components/HotkeyRecorder.svelte'
@@ -66,19 +66,26 @@
       setServiceUrl('claude',    settings.urlClaude)
       setServiceUrl('translate', settings.urlTranslate)
 
+      // Save credentials to SQLite
+      await setProfileValue('api_key', settings.apiKey)
+      await setProfileValue('api_url', settings.apiUrl)
+      await setProfileValue('model', settings.model)
+
       // Persist to disk (what Config supports)
       await saveConfig({
         site:                   settings.urlClaude,
         hotkey:                 settings.hotkey,
         language:               'id-ID',
         opacity:                settings.opacity / 100,
-        autostart:              false,
+        autostart:              settings.autostart,
         position:               null,
         stt_backend:            settings.sttBackend,
         whisper_model:          settings.whisperModel,
+        whisper_local_url:      settings.whisperLocalUrl,
         copilot_context_s:      settings.copilotContextS,
         copilot_auto_dismiss_s: settings.copilotAutoDismissS,
         copilot_min_interval_s: settings.copilotMinIntervalS,
+        stt_language:           settings.sttLanguage,
       })
 
       saved = true
@@ -279,6 +286,22 @@
             </span>
           </div>
         </div>
+
+        <!-- Buka otomatis saat boot -->
+        <div class="hub-s-row">
+          <div class="label-wrap">
+            <div class="l-name">Buka otomatis saat boot</div>
+            <div class="l-desc">Jalankan noscreen secara otomatis ketika komputer menyala.</div>
+          </div>
+          <div class="field-wrap" style="flex-direction:row;align-items:center;gap:10px">
+            <button class="hub-switch" data-on={String(settings.autostart)}
+              onclick={() => settings.autostart = !settings.autostart}
+              aria-label="Toggle buka otomatis saat boot"><i></i></button>
+            <span style="font-size:12px;color:var(--text-soft)">
+              {settings.autostart ? 'Aktif' : 'Nonaktif'}
+            </span>
+          </div>
+        </div>
       </div>
 
       <!-- ── Keyboard Shortcuts -->
@@ -339,16 +362,50 @@
         <div class="hub-s-row">
           <div class="label-wrap">
             <div class="l-name">STT Backend</div>
-            <div class="l-desc">Engine speech-to-text. v1 hanya support Whisper Cloud.</div>
+            <div class="l-desc">Engine speech-to-text.</div>
           </div>
           <div class="field-wrap">
             <select class="hub-input" bind:value={settings.sttBackend}>
               <option value="whisper-cloud">Whisper API (OpenAI)</option>
-              <option value="whisper-local" disabled>Whisper local (Coming soon)</option>
-              <option value="windows-sr" disabled>Windows Speech Recognition (Coming soon)</option>
+              <option value="whisper-local">Whisper Local (OpenAI-compatible)</option>
+              <option value="windows-sr">Windows Speech Recognition</option>
             </select>
           </div>
         </div>
+
+        {#if settings.sttBackend !== 'windows-sr'}
+          <div class="hub-s-row">
+            <div class="label-wrap">
+              <div class="l-name">Bahasa STT</div>
+              <div class="l-desc">Bahasa yang dikenali Whisper. <strong>Auto-detect</strong> cocok untuk percakapan campuran (misal Japan-English).</div>
+            </div>
+            <div class="field-wrap">
+              <select class="hub-input" bind:value={settings.sttLanguage}>
+                <option value="">Auto-detect</option>
+                <option value="en">English</option>
+                <option value="ja">Japanese (日本語)</option>
+                <option value="id">Indonesian (Bahasa Indonesia)</option>
+                <option value="zh">Chinese (中文)</option>
+                <option value="ko">Korean (한국어)</option>
+                <option value="fr">French (Français)</option>
+                <option value="de">German (Deutsch)</option>
+                <option value="es">Spanish (Español)</option>
+              </select>
+            </div>
+          </div>
+        {/if}
+
+        {#if settings.sttBackend === 'whisper-local'}
+          <div class="hub-s-row">
+            <div class="label-wrap">
+              <div class="l-name">Local STT URL</div>
+              <div class="l-desc">Endpoint server Whisper lokal Anda (misal whisper.cpp, Ollama, dll.).</div>
+            </div>
+            <div class="field-wrap">
+              <input class="hub-input" bind:value={settings.whisperLocalUrl} placeholder="http://localhost:8080" />
+            </div>
+          </div>
+        {/if}
 
         <div class="hub-s-row">
           <div class="label-wrap">
