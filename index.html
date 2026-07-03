@@ -1,0 +1,362 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>noscreen — invisible to screen sharing, visible to you</title>
+<meta name="description" content="noscreen is a desktop privacy overlay that stays visible to you but invisible to screen sharing, recording, and OS-level screenshots." />
+<link rel="icon" href="static/favicon.png" />
+
+<meta property="og:title" content="noscreen — invisible to screen sharing, visible to you" />
+<meta property="og:description" content="Keep notes, AI assistants, and sensitive info on screen while staying hidden from Zoom, Teams, Meet, OBS, Discord, and screenshots." />
+<meta property="og:type" content="website" />
+<meta name="twitter:card" content="summary" />
+
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+
+<style>
+  :root {
+    --bg:            #08080a;
+    --bg-elev:       #101013;
+    --bg-elev-2:     #17171b;
+    --border:        rgba(255,255,255,0.08);
+    --border-strong: rgba(255,255,255,0.16);
+    --text:          #f2f2f4;
+    --text-mid:      #a7a7b0;
+    --text-soft:     #7a7a84;
+    --accent:        #5e6ad2;
+    --accent-2:      #8a96f0;
+    --accent-soft:   rgba(94,106,210,0.14);
+    --green:         #3ecf8e;
+    --mono:          'JetBrains Mono', ui-monospace, Menlo, monospace;
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Onest', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    line-height: 1.5;
+  }
+
+  a { color: inherit; }
+
+  .bg-glow {
+    position: fixed; inset: 0; z-index: -1; overflow: hidden;
+  }
+  .bg-glow::before, .bg-glow::after {
+    content: ''; position: absolute; border-radius: 50%;
+    filter: blur(120px); opacity: 0.35;
+  }
+  .bg-glow::before {
+    width: 640px; height: 640px; top: -220px; left: -160px;
+    background: radial-gradient(circle, var(--accent), transparent 70%);
+  }
+  .bg-glow::after {
+    width: 560px; height: 560px; bottom: -220px; right: -140px;
+    background: radial-gradient(circle, #3ecf8e, transparent 70%);
+    opacity: 0.16;
+  }
+
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 24px; }
+
+  /* ── Nav ─────────────────────────────────────────────── */
+  nav {
+    position: sticky; top: 0; z-index: 20;
+    backdrop-filter: blur(14px);
+    background: rgba(8,8,10,0.7);
+    border-bottom: 1px solid var(--border);
+  }
+  nav .wrap { display: flex; align-items: center; justify-content: space-between; height: 64px; }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 15px; letter-spacing: -0.01em; }
+  .brand-mark {
+    width: 26px; height: 26px; border-radius: 8px;
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px; font-weight: 800; color: #fff;
+    box-shadow: 0 4px 14px rgba(94,106,210,0.4);
+  }
+  .nav-links { display: flex; align-items: center; gap: 28px; font-size: 13.5px; color: var(--text-mid); }
+  .nav-links a { text-decoration: none; transition: color .15s; }
+  .nav-links a:hover { color: var(--text); }
+  .nav-cta {
+    padding: 8px 16px; border-radius: 7px;
+    background: var(--text); color: var(--bg) !important;
+    font-weight: 600; font-size: 13px; text-decoration: none;
+  }
+
+  /* ── Hero ────────────────────────────────────────────── */
+  .hero { padding: 100px 0 80px; text-align: center; }
+  .eyebrow {
+    display: inline-flex; align-items: center; gap: 7px;
+    font-size: 12px; font-weight: 500; color: var(--accent-2);
+    background: var(--accent-soft); border: 1px solid rgba(94,106,210,0.3);
+    padding: 5px 12px; border-radius: 999px; margin-bottom: 24px;
+  }
+  .eyebrow .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); }
+  h1 {
+    font-size: clamp(34px, 5.4vw, 58px);
+    font-weight: 800; letter-spacing: -0.03em; line-height: 1.08;
+    margin: 0 0 20px; max-width: 780px; margin-inline: auto;
+  }
+  h1 .grad {
+    background: linear-gradient(135deg, var(--accent-2), #b9c1ff);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .lead {
+    font-size: 17px; color: var(--text-mid); max-width: 560px; margin: 0 auto 36px;
+  }
+  .hero-ctas { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; margin-bottom: 56px; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 12px 22px; border-radius: 9px; font-size: 14.5px; font-weight: 600;
+    text-decoration: none; border: 1px solid transparent; cursor: pointer;
+    transition: transform .12s ease, background .15s ease, border-color .15s ease;
+  }
+  .btn:hover { transform: translateY(-1px); }
+  .btn.primary { background: linear-gradient(135deg, var(--accent), var(--accent-2)); color: #fff; box-shadow: 0 10px 30px rgba(94,106,210,0.35); }
+  .btn.ghost { background: var(--bg-elev); color: var(--text); border-color: var(--border); }
+
+  /* ── Window mock ────────────────────────────────────── */
+  .mock {
+    max-width: 880px; margin: 0 auto; border-radius: 14px;
+    background: var(--bg-elev); border: 1px solid var(--border);
+    box-shadow: 0 40px 90px -30px rgba(0,0,0,0.6);
+    overflow: hidden;
+  }
+  .mock-bar { display: flex; align-items: center; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--border); }
+  .mock-dot { width: 11px; height: 11px; border-radius: 50%; }
+  .mock-dot.r { background: #ff5f57; } .mock-dot.y { background: #febc2e; } .mock-dot.g { background: #28c840; }
+  .mock-title { flex: 1; text-align: center; font-size: 12px; color: var(--text-soft); }
+  .mock-body { display: flex; min-height: 320px; }
+  .mock-side { width: 190px; border-right: 1px solid var(--border); padding: 16px 10px; flex-shrink: 0; }
+  .mock-nav-item { padding: 8px 10px; border-radius: 6px; font-size: 12.5px; color: var(--text-mid); margin-bottom: 2px; }
+  .mock-nav-item.active { background: rgba(255,255,255,0.06); color: var(--text); font-weight: 500; }
+  .mock-main { flex: 1; padding: 28px; display: flex; flex-direction: column; gap: 14px; align-items: flex-start; }
+  .mock-badge {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-size: 11px; font-weight: 600; color: var(--green);
+    background: rgba(62,207,142,0.12); padding: 4px 10px; border-radius: 999px;
+  }
+  .mock-bubble {
+    background: var(--bg-elev-2); border: 1px solid var(--border); border-radius: 10px;
+    padding: 14px 16px; font-size: 13px; color: var(--text-mid); max-width: 460px;
+  }
+  .mock-line { height: 8px; border-radius: 4px; background: rgba(255,255,255,0.06); }
+  .mock-line.w60 { width: 60%; } .mock-line.w80 { width: 80%; } .mock-line.w40 { width: 40%; }
+
+  /* ── Sections ────────────────────────────────────────── */
+  section { padding: 88px 0; }
+  .section-head { text-align: center; max-width: 560px; margin: 0 auto 52px; }
+  .section-head .tag { font-size: 12px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent-2); margin-bottom: 12px; display: block; }
+  .section-head h2 { font-size: 32px; font-weight: 700; letter-spacing: -0.02em; margin: 0 0 12px; }
+  .section-head p { color: var(--text-mid); font-size: 15px; margin: 0; }
+
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+  .card {
+    background: var(--bg-elev); border: 1px solid var(--border); border-radius: 12px;
+    padding: 24px; transition: border-color .15s ease, transform .15s ease;
+  }
+  .card:hover { border-color: var(--border-strong); transform: translateY(-2px); }
+  .card .ic {
+    width: 38px; height: 38px; border-radius: 9px; margin-bottom: 16px;
+    background: var(--accent-soft); display: flex; align-items: center; justify-content: center;
+    color: var(--accent-2);
+  }
+  .card .ic svg { width: 19px; height: 19px; }
+  .icon { width: 1em; height: 1em; display: inline-block; vertical-align: -0.125em; }
+  .btn svg, .eyebrow svg, .mock-badge svg { width: 14px; height: 14px; }
+  .card h3 { font-size: 15.5px; font-weight: 600; margin: 0 0 8px; }
+  .card p { font-size: 13.5px; color: var(--text-mid); margin: 0; line-height: 1.55; }
+
+  /* ── Platform table ──────────────────────────────────── */
+  .platforms { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+  .plat-card {
+    background: var(--bg-elev); border: 1px solid var(--border); border-radius: 12px; padding: 22px;
+  }
+  .plat-card .name { font-weight: 600; font-size: 14.5px; margin-bottom: 6px; }
+  .plat-status { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 500; margin-bottom: 10px; }
+  .plat-status .dot { width: 7px; height: 7px; border-radius: 50%; }
+  .plat-status.ok { color: var(--green); } .plat-status.ok .dot { background: var(--green); }
+  .plat-status.warn { color: #d49c2a; } .plat-status.warn .dot { background: #d49c2a; }
+  .plat-status.no { color: var(--text-soft); } .plat-status.no .dot { background: var(--text-soft); }
+  .plat-card .note { font-size: 12.5px; color: var(--text-mid); line-height: 1.5; }
+
+  /* ── CTA ─────────────────────────────────────────────── */
+  .cta-box {
+    text-align: center; padding: 64px 32px; border-radius: 18px;
+    background: linear-gradient(135deg, rgba(94,106,210,0.14), rgba(138,150,240,0.05));
+    border: 1px solid rgba(94,106,210,0.25);
+  }
+  .cta-box h2 { font-size: 28px; margin: 0 0 12px; letter-spacing: -0.02em; }
+  .cta-box p { color: var(--text-mid); margin: 0 0 28px; font-size: 15px; }
+
+  footer {
+    border-top: 1px solid var(--border); padding: 32px 0; margin-top: 20px;
+  }
+  footer .wrap { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px; }
+  footer .foot-note { font-size: 12.5px; color: var(--text-soft); }
+  footer .foot-links { display: flex; gap: 20px; font-size: 13px; color: var(--text-mid); }
+  footer .foot-links a { text-decoration: none; }
+  footer .foot-links a:hover { color: var(--text); }
+
+  code.inline { font-family: var(--mono); background: rgba(255,255,255,0.06); padding: 1px 6px; border-radius: 4px; font-size: 0.9em; }
+
+  @media (max-width: 860px) {
+    .grid, .platforms { grid-template-columns: 1fr; }
+    .mock-side { display: none; }
+    .nav-links { display: none; }
+  }
+</style>
+</head>
+<body>
+<div class="bg-glow"></div>
+
+<nav>
+  <div class="wrap">
+    <div class="brand"><span class="brand-mark">N</span> noscreen</div>
+    <div class="nav-links">
+      <a href="#features">Features</a>
+      <a href="#platforms">Platforms</a>
+      <a href="https://github.com/ilse31/noscreen-app#readme">Docs</a>
+    </div>
+    <a class="nav-cta" href="https://github.com/ilse31/noscreen-app/releases">Download</a>
+  </div>
+</nav>
+
+<header class="hero">
+  <div class="wrap">
+    <span class="eyebrow"><span class="dot"></span> OS-level capture protection, not a filter</span>
+    <h1>Invisible to screen sharing.<br><span class="grad">Visible only to you.</span></h1>
+    <p class="lead">noscreen is a desktop overlay that keeps notes, AI assistants, and sensitive tools on your screen — while Zoom, Teams, Meet, OBS, Discord, and screenshots see nothing at all.</p>
+    <div class="hero-ctas">
+      <a class="btn primary" href="https://github.com/ilse31/noscreen-app/releases"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3"/><path d="m7 10 5 5 5-5"/><path d="M20 21H4"/></svg> Download for Windows</a>
+      <a class="btn ghost" href="https://github.com/ilse31/noscreen-app"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 1.5 5 1.5 5 1.5c-.3 1.15-.3 2.35 0 3.5a5.4 5.4 0 0 0-1 3.5c0 3.5 3 5.5 6 5.5a4.8 4.8 0 0 0-1 3.5v4"/></svg> View on GitHub</a>
+    </div>
+
+    <div class="mock">
+      <div class="mock-bar">
+        <span class="mock-dot r"></span><span class="mock-dot y"></span><span class="mock-dot g"></span>
+        <span class="mock-title">no‑screen</span>
+      </div>
+      <div class="mock-body">
+        <div class="mock-side">
+          <div class="mock-nav-item active">Dasbor</div>
+          <div class="mock-nav-item">Copilot</div>
+          <div class="mock-nav-item">ChatGPT</div>
+          <div class="mock-nav-item">Claude</div>
+          <div class="mock-nav-item">Obrolan AI</div>
+        </div>
+        <div class="mock-main">
+          <span class="mock-badge"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg> Hidden from screen capture</span>
+          <div class="mock-bubble">
+            <div class="mock-line w80" style="margin-bottom:8px"></div>
+            <div class="mock-line w60" style="margin-bottom:8px"></div>
+            <div class="mock-line w40"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<section id="features">
+  <div class="wrap">
+    <div class="section-head">
+      <span class="tag">Features</span>
+      <h2>Built for privacy under real pressure</h2>
+      <p>Protection enforced at the operating-system level — not cropped windows, not post-processing.</p>
+    </div>
+    <div class="grid">
+      <div class="card">
+        <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/></svg></div>
+        <h3>Capture-invisible windows</h3>
+        <p>Uses <code class="inline">WDA_EXCLUDEFROMCAPTURE</code> on Windows and <code class="inline">NSWindowSharingNone</code> on macOS. Captured frames simply don't contain noscreen's pixels.</p>
+      </div>
+      <div class="card">
+        <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M8 12h.01M12 12h.01M16 12h.01M7 16h10"/></svg></div>
+        <h3>Global hotkeys &amp; ghost typing</h3>
+        <p>Show, hide, and type into the overlay without the app behind it ever losing focus or firing a blur event.</p>
+      </div>
+      <div class="card">
+        <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"/><rect x="4" y="8" width="16" height="12" rx="2"/><path d="M2 14h2M20 14h2M9 13v2M15 13v2"/></svg></div>
+        <h3>Embedded AI, protected</h3>
+        <p>ChatGPT, Claude, and a native chat panel — all running as capture-protected webviews with anti-fingerprint patches.</p>
+      </div>
+      <div class="card">
+        <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v1a7 7 0 0 1-14 0v-1M12 18.5V22M8 22h8"/></svg></div>
+        <h3>Live speech-to-text</h3>
+        <p>Continuous dictation via Windows Speech Recognition or Whisper, including system-loopback audio capture.</p>
+      </div>
+      <div class="card">
+        <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg></div>
+        <h3>Click-through &amp; opacity</h3>
+        <p>Pass mouse events straight through to what's behind the overlay, and dial in exactly how transparent it looks.</p>
+      </div>
+      <div class="card">
+        <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></div>
+        <h3>Local-only history</h3>
+        <p>SQLite-backed conversation history, stored on disk only — nothing is sent to a remote service.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="platforms">
+  <div class="wrap">
+    <div class="section-head">
+      <span class="tag">Platform support</span>
+      <h2>Where noscreen runs</h2>
+    </div>
+    <div class="platforms">
+      <div class="plat-card">
+        <div class="name">Windows 10 (2004+) / 11</div>
+        <div class="plat-status ok"><span class="dot"></span> Primary target</div>
+        <div class="note">Full feature set, including ghost typing and WASAPI loopback speech-to-text.</div>
+      </div>
+      <div class="plat-card">
+        <div class="name">macOS 12+</div>
+        <div class="plat-status warn"><span class="dot"></span> Partial support</div>
+        <div class="note">Core capture protection works; Windows-only features are stubbed.</div>
+      </div>
+      <div class="plat-card">
+        <div class="name">Linux</div>
+        <div class="plat-status no"><span class="dot"></span> Not planned</div>
+        <div class="note">Wayland/X11 don't expose an equivalent capture-exclusion API.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="cta-box">
+      <h2>Try noscreen today</h2>
+      <p>Free and open source. Built with Rust, Tauri 2, Svelte 5, and Tailwind CSS.</p>
+      <div class="hero-ctas" style="margin-bottom:0">
+        <a class="btn primary" href="https://github.com/ilse31/noscreen-app/releases"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3"/><path d="m7 10 5 5 5-5"/><path d="M20 21H4"/></svg> Get the latest release</a>
+        <a class="btn ghost" href="https://github.com/ilse31/noscreen-app">Read the docs</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <div class="foot-note">© <span id="year"></span> noscreen — MIT licensed.</div>
+    <div class="foot-links">
+      <a href="https://github.com/ilse31/noscreen-app">GitHub</a>
+      <a href="https://github.com/ilse31/noscreen-app/releases">Releases</a>
+      <a href="https://github.com/ilse31/noscreen-app/issues">Issues</a>
+    </div>
+  </div>
+</footer>
+
+<script>document.getElementById('year').textContent = new Date().getFullYear();</script>
+</body>
+</html>
