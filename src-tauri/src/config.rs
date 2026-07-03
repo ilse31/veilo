@@ -106,6 +106,7 @@ mod tests {
             copilot_context_s: 90,
             copilot_auto_dismiss_s: 25,
             copilot_min_interval_s: 4,
+            stt_language: String::new(),
         };
         write_config(&dir.path().to_path_buf(), &config).unwrap();
         let loaded = read_config(&dir.path().to_path_buf());

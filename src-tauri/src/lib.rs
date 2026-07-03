@@ -119,6 +119,7 @@ pub fn run() {
             .always_on_top(true)
             .content_protected(true)
             .skip_taskbar(true)
+            .transparent(true)
             .inner_size(1200.0, 820.0)
             .min_inner_size(900.0, 600.0)
             .resizable(true);

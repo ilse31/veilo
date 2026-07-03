@@ -1,5 +1,4 @@
 {
   "svelte.enable-ts-plugin": true,
-  "snyk.advanced.organization": "fee15778-17db-4d96-92f2-0a4c1ea6d48d",
   "snyk.advanced.autoSelectOrganization": true
 }

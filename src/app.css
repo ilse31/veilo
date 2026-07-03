@@ -12,7 +12,7 @@ html, body {
   width: 100%;
   height: 100%;
   overflow: hidden;
-  background: var(--bg);
+  background: transparent;
   overscroll-behavior: none;
 }
 
@@ -22,8 +22,11 @@ html, body {
 
 :root {
   --bg:          #fafafa;
+  --bg-rgb:      250, 250, 250;
   --bg-elev:     #ffffff;
+  --bg-elev-rgb: 255, 255, 255;
   --bg-side:     #f4f4f5;
+  --bg-side-rgb: 244, 244, 245;
   --bg-hover:    rgba(0, 0, 0, 0.04);
   --bg-active:   rgba(0, 0, 0, 0.06);
   --border:      rgba(0, 0, 0, 0.08);
@@ -42,8 +45,11 @@ html, body {
 
 [data-theme="dark"] {
   --bg:          #0e0e10;
+  --bg-rgb:      14, 14, 16;
   --bg-elev:     #161618;
+  --bg-elev-rgb: 22, 22, 24;
   --bg-side:     #131316;
+  --bg-side-rgb: 19, 19, 22;
   --bg-hover:    rgba(255, 255, 255, 0.05);
   --bg-active:   rgba(255, 255, 255, 0.08);
   --border:      rgba(255, 255, 255, 0.07);
@@ -64,7 +70,7 @@ html, body {
   font-size: 14px;
   line-height: 1.5;
   color: var(--text);
-  background: var(--bg);
+  background: rgba(var(--bg-rgb), var(--hub-alpha, 1));
   -webkit-font-smoothing: antialiased;
   overflow: hidden;
 }
@@ -76,7 +82,7 @@ html, body {
   padding: 0 14px;
   -webkit-app-region: drag;
   border-bottom: 1px solid var(--border);
-  background: var(--bg);
+  background: transparent;
 }
 .hub-titlebar .lights {
   display: flex; gap: 8px; align-items: center;
@@ -132,7 +138,7 @@ html, body {
 /* ── Sidebar ──────────────────────────────────────────────── */
 .hub-sidebar {
   width: 232px; flex-shrink: 0;
-  background: var(--bg-side);
+  background: rgba(var(--bg-side-rgb), var(--hub-alpha, 1));
   border-right: 1px solid var(--border);
   display: flex; flex-direction: column;
 }
@@ -219,7 +225,8 @@ html, body {
 /* ── Main pane ────────────────────────────────────────────── */
 .hub-main {
   flex: 1; display: flex; flex-direction: column;
-  background: var(--bg); min-width: 0; position: relative;
+  background: rgba(var(--bg-rgb), var(--hub-alpha, 1));
+  min-width: 0; position: relative;
 }
 
 /* ── Generic primitives ───────────────────────────────────── */
@@ -430,7 +437,8 @@ html, body {
 .hub-chat-side {
   width: 240px; flex-shrink: 0;
   border-right: 1px solid var(--border);
-  background: var(--bg-side); display: flex; flex-direction: column;
+  background: rgba(var(--bg-side-rgb), var(--hub-alpha, 1));
+  display: flex; flex-direction: column;
 }
 .hub-chat-side .top { padding: 12px; display: flex; gap: 8px; align-items: center; }
 .hub-chat-side .list { flex: 1; overflow: auto; padding: 4px 8px 12px; }
@@ -438,6 +446,8 @@ html, body {
   padding: 8px 10px; border-radius: 6px;
   font-size: 12.5px; color: var(--text-mid);
   cursor: default; display: flex; flex-direction: column; gap: 2px;
+  background: var(--bg-elev); border: 1px solid var(--border);
+  margin-bottom: 4px;
 }
 .hub-chat-side .conv:hover { background: var(--bg-hover); color: var(--text); }
 .hub-chat-side .conv.active { background: var(--bg-active); color: var(--text); }
@@ -461,6 +471,10 @@ html, body {
 .hub-msg .body {
   font-size: 14px; line-height: 1.6; color: var(--text);
   padding-top: 2px; white-space: pre-wrap; word-wrap: break-word;
+}
+.hub-msg.assistant .body {
+  background: var(--bg-elev); border: 1px solid var(--border);
+  border-radius: 10px; padding: 10px 12px;
 }
 .hub-cursor-blink {
   display: inline-block; width: 6px; height: 14px;
@@ -498,10 +512,12 @@ html, body {
 
 .hub-chat-input-wrap {
   border-top: 1px solid var(--border);
-  padding: 14px 32px 18px; background: var(--bg);
+  padding: 14px 32px 18px;
+  background: rgba(var(--bg-rgb), var(--hub-alpha, 1));
 }
 .hub-chat-input-box {
-  background: var(--bg-elev); border: 1px solid var(--border);
+  background: rgba(var(--bg-elev-rgb), var(--hub-alpha, 1));
+  border: 1px solid var(--border);
   border-radius: 12px; padding: 10px 12px 8px;
   display: flex; flex-direction: column; gap: 6px;
   max-width: 780px; margin: 0 auto;

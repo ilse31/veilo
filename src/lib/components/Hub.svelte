@@ -213,8 +213,8 @@
     page = 'dashboard'
   }} />
 {:else}
-<!-- Opacity is controlled via CSS, sourced from settings store -->
-<div class="hub-root" style="opacity:{settings.opacity / 100}">
+<!-- Window background alpha (not element opacity) is controlled via CSS, sourced from settings store, so text stays sharp while the backdrop shows through -->
+<div class="hub-root" style="--hub-alpha:{settings.opacity / 100}">
   <Sidebar current={page} onNav={(p) => setPage(p as Page)} apiOk={!!settings.apiKey} />
 
   <main class="hub-main">

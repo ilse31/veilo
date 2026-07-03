@@ -245,11 +245,11 @@
         <div class="hub-s-row">
           <div class="label-wrap">
             <div class="l-name">Opasitas jendela</div>
-            <div class="l-desc">Berlaku langsung. Disimpan saat klik "Simpan".</div>
+            <div class="l-desc">Mengatur transparansi background — teks tetap tajam. Berlaku langsung. Disimpan saat klik "Simpan".</div>
           </div>
           <div class="field-wrap">
             <div class="hub-range-row">
-              <input type="range" min="20" max="100" step="1" bind:value={settings.opacity} />
+              <input type="range" min="5" max="100" step="1" bind:value={settings.opacity} />
               <span class="v-val">{settings.opacity}%</span>
             </div>
           </div>
