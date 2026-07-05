@@ -23,8 +23,21 @@
   async function handleSave() {
     saving = true; saveError = ''; saved = false
     try {
-      await saveConfig(form)
-      config.set({ ...form })
+      // Merge onto a FRESH config from disk — this window is pre-created at
+      // startup, so `form` may hold a stale snapshot; writing it wholesale
+      // would revert settings saved elsewhere (e.g. HubSettings) meanwhile.
+      const fresh = await getConfig()
+      const merged: Config = {
+        ...fresh,
+        site:      form.site,
+        language:  form.language,
+        hotkey:    form.hotkey,
+        opacity:   form.opacity,
+        autostart: form.autostart,
+      }
+      await saveConfig(merged)
+      form = { ...merged }
+      config.set({ ...merged })
       saved = true
       setTimeout(() => (saved = false), 2000)
     } catch (e) {

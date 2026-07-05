@@ -27,8 +27,9 @@ mod imp {
     use windows::Win32::UI::Input::KeyboardAndMouse::{
         GetAsyncKeyState, GetKeyboardLayout, MapVirtualKeyW, ToUnicodeEx,
         MAPVK_VK_TO_VSC, VIRTUAL_KEY, VK_BACK, VK_CAPITAL, VK_CONTROL,
-        VK_DELETE, VK_END, VK_ESCAPE, VK_HOME, VK_LEFT, VK_MENU, VK_RETURN,
-        VK_RIGHT, VK_SHIFT, VK_SPACE, VK_TAB,
+        VK_DELETE, VK_END, VK_ESCAPE, VK_HOME, VK_LCONTROL, VK_LEFT, VK_LMENU,
+        VK_LSHIFT, VK_MENU, VK_RCONTROL, VK_RETURN, VK_RIGHT, VK_RMENU,
+        VK_RSHIFT, VK_SHIFT, VK_SPACE, VK_TAB,
     };
     use windows::Win32::UI::WindowsAndMessaging::{
         CallNextHookEx, DispatchMessageW, GetMessageW, PostThreadMessageW,
@@ -62,14 +63,19 @@ mod imp {
 
     /// Install the hook and start the worker thread.
     pub fn start(app: AppHandle) -> Result<(), String> {
-        if ACTIVE.load(Ordering::Relaxed) {
+        // swap: atomically claim the active slot so two racing start()s
+        // can't both spawn a hook thread.
+        if ACTIVE.swap(true, Ordering::Relaxed) {
             return Ok(());
         }
         *APP.lock().unwrap() = Some(app);
-        ACTIVE.store(true, Ordering::Relaxed);
+        // Clear any stale tid from a previous session so the wait loop below
+        // observes THIS thread's id, not the old one.
+        *THREAD_ID.lock().unwrap() = 0;
 
         std::thread::spawn(|| unsafe {
-            *THREAD_ID.lock().unwrap() = GetCurrentThreadId();
+            let my_tid = GetCurrentThreadId();
+            *THREAD_ID.lock().unwrap() = my_tid;
 
             let hook = match SetWindowsHookExW(WH_KEYBOARD_LL, Some(keyboard_proc), None, 0) {
                 Ok(h) => h,
@@ -89,8 +95,22 @@ mod imp {
             }
 
             let _ = UnhookWindowsHookEx(hook);
-            *THREAD_ID.lock().unwrap() = 0;
+            // Only zero if it's still OUR tid — a restarted session may have
+            // already published a new thread's id, which we must not clobber.
+            let mut tid = THREAD_ID.lock().unwrap();
+            if *tid == my_tid {
+                *tid = 0;
+            }
         });
+
+        // Wait (bounded) until the worker published its tid, so a stop() that
+        // follows immediately can actually reach it with WM_QUIT.
+        for _ in 0..100 {
+            if *THREAD_ID.lock().unwrap() != 0 {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
 
         Ok(())
     }
@@ -122,19 +142,21 @@ mod imp {
         }
 
         let kb = &*(lparam.0 as *const KBDLLHOOKSTRUCT);
+        let vk = VIRTUAL_KEY(kb.vkCode as u16);
+
+        // Pass modifier keys through untouched — both down AND up, checked before
+        // the down/up branch below. Swallowing a modifier's key-up leaves it
+        // "stuck" down in Windows' global state, breaking hotkeys (e.g. the
+        // show/hide shortcut) even after ghost typing ends.
+        if is_modifier_vk(vk) {
+            return CallNextHookEx(HHOOK(std::ptr::null_mut()), code, wparam, lparam);
+        }
+
         let is_down = wparam.0 as u32 == WM_KEYDOWN || wparam.0 as u32 == WM_SYSKEYDOWN;
 
         // Consume key-up silently; only process key-down.
         if !is_down {
             return LRESULT(1);
-        }
-
-        let vk = VIRTUAL_KEY(kb.vkCode as u16);
-
-        // Pass modifier keys through so the browser can still use Ctrl+Tab, etc.
-        // We intercept everything else.
-        if matches!(vk, VK_SHIFT | VK_CONTROL | VK_MENU | VK_CAPITAL) {
-            return CallNextHookEx(HHOOK(std::ptr::null_mut()), code, wparam, lparam);
         }
 
         let key = match vk {
@@ -187,6 +209,47 @@ mod imp {
             char::from_u32(buf[0] as u32).filter(|c| !c.is_control())
         } else {
             None
+        }
+    }
+
+    /// True for Shift/Ctrl/Alt/CapsLock, generic or left/right-specific.
+    /// WH_KEYBOARD_LL reports these as their left/right-specific codes
+    /// (VK_LSHIFT/VK_RCONTROL/...), not the generic VK_SHIFT/VK_CONTROL/VK_MENU.
+    fn is_modifier_vk(vk: VIRTUAL_KEY) -> bool {
+        matches!(
+            vk,
+            VK_SHIFT
+                | VK_CONTROL
+                | VK_MENU
+                | VK_LSHIFT
+                | VK_RSHIFT
+                | VK_LCONTROL
+                | VK_RCONTROL
+                | VK_LMENU
+                | VK_RMENU
+                | VK_CAPITAL
+        )
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn modifier_keys_are_recognized_by_their_lr_specific_codes() {
+            for vk in [
+                VK_SHIFT, VK_CONTROL, VK_MENU, VK_LSHIFT, VK_RSHIFT, VK_LCONTROL,
+                VK_RCONTROL, VK_LMENU, VK_RMENU, VK_CAPITAL,
+            ] {
+                assert!(is_modifier_vk(vk), "{vk:?} should be treated as a modifier");
+            }
+        }
+
+        #[test]
+        fn ordinary_keys_are_not_modifiers() {
+            for vk in [VK_RETURN, VK_SPACE, VK_TAB, VK_BACK, VK_ESCAPE] {
+                assert!(!is_modifier_vk(vk), "{vk:?} should not be treated as a modifier");
+            }
         }
     }
 }

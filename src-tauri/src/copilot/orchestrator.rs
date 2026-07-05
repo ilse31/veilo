@@ -197,14 +197,23 @@ impl Orchestrator {
                 Ok(r) if r.status().is_success() => {
                     use futures_util::StreamExt;
                     let mut stream = r.bytes_stream();
+                    // Buffer the trailing partial line between TCP chunks —
+                    // an SSE `data:` payload split across chunks would
+                    // otherwise be dropped (same pattern as chat.rs).
+                    let mut leftover = String::new();
                     while let Some(chunk) = stream.next().await {
                         let Ok(bytes) = chunk else { break };
-                        let text = String::from_utf8_lossy(&bytes);
-                        for line in text.lines() {
-                            let Some(data) = line.strip_prefix("data: ") else { continue };
+                        leftover.push_str(&String::from_utf8_lossy(&bytes));
+                        let mut lines: Vec<String> = std::mem::take(&mut leftover)
+                            .split('\n')
+                            .map(String::from)
+                            .collect();
+                        leftover = lines.pop().unwrap_or_default();
+                        for line in lines {
+                            let Some(data) = line.trim().strip_prefix("data: ") else { continue };
                             if data == "[DONE]" { continue; }
                             let Ok(j) = serde_json::from_str::<serde_json::Value>(data) else {
-                                eprintln!("[orchestrator] SSE parse failed (likely split chunk): {}", data);
+                                eprintln!("[orchestrator] SSE parse failed: {}", data);
                                 continue;
                             };
                             if let Some(d) = j["choices"][0]["delta"]["content"].as_str() {

@@ -118,6 +118,7 @@ pub fn run() {
             )
             .title("no‑screen")
             .decorations(false)
+            .shadow(false)
             .always_on_top(true)
             .content_protected(true)
             .skip_taskbar(true)
@@ -206,6 +207,7 @@ pub fn run() {
             let copilot_card = WebviewWindowBuilder::new(app, "copilot-card", card_url)
                 .title("noscreen — Copilot")
                 .decorations(false)
+                .shadow(false)
                 .always_on_top(true)
                 .content_protected(true)
                 .skip_taskbar(true)
@@ -249,6 +251,7 @@ pub fn run() {
                 let parsed: url::Url = url_str.parse().expect("valid service URL");
                 let svc = WebviewWindowBuilder::new(app, &label, WebviewUrl::External(parsed))
                     .decorations(false)
+                    .shadow(false)
                     .always_on_top(true)
                     .skip_taskbar(true)
                     .content_protected(true)

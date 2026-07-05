@@ -32,6 +32,7 @@
   let input       = $state('')
   let streaming   = $state(false)
   let streamBuf   = $state('')
+  let streamConvId = $state<number | null>(null)  // conversation the in-flight stream belongs to
   let scrollEl    = $state<HTMLElement | null>(null)
   let activeId    = ''               // current stream id (for cancellation)
   let abortUnlisten: UnlistenFn | null = null
@@ -63,11 +64,11 @@
   }
 
   async function newChat() {
+    // Abort any in-flight stream first; its finally-block resets `streaming`.
+    await stopStream()
     activeConvId = null
     msgs         = []
     streamBuf    = ''
-    streaming    = false
-    await stopStream()
   }
 
   async function removeConv(id: number) {
@@ -111,6 +112,7 @@
 
     streaming = true
     streamBuf = ''
+    streamConvId = convId
 
     if (!apiUrl) {
       const body = 'URL API belum diatur. Buka Pengaturan → Koneksi AI Lokal.'
@@ -136,16 +138,19 @@
 
       const body = full || '(tidak ada respons)'
       await appendMessage(convId, 'assistant', body)
-      msgs = [...msgs, { role: 'assistant', body }]
+      // Only touch the UI if the user is still viewing this conversation —
+      // they may have switched away mid-stream (DB write above is always correct).
+      if (activeConvId === convId) msgs = [...msgs, { role: 'assistant', body }]
     } catch (e) {
       // If something was already streamed before the error, keep it.
       const partial = streamBuf ? streamBuf + '\n\n' : ''
       const body = `${partial}Gagal: ${e}`
       await appendMessage(convId, 'assistant', body)
-      msgs = [...msgs, { role: 'assistant', body }]
+      if (activeConvId === convId) msgs = [...msgs, { role: 'assistant', body }]
     } finally {
       streaming = false
       streamBuf  = ''
+      streamConvId = null
       activeId   = ''
       if (abortUnlisten) { abortUnlisten(); abortUnlisten = null }
       await loadConvList()
@@ -241,7 +246,7 @@
             </div>
           </div>
         {/each}
-        {#if streaming}
+        {#if streaming && activeConvId === streamConvId}
           <div class="hub-msg assistant">
             <div class="av">N</div>
             <div>

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte'
   import { listen } from '@tauri-apps/api/event'
+  import { getCurrentWindow } from '@tauri-apps/api/window'
   import TitleBar from './hub/TitleBar.svelte'
   import Sidebar from './hub/Sidebar.svelte'
   import Dashboard from './hub/Dashboard.svelte'
@@ -118,17 +119,24 @@
     document.documentElement.setAttribute('data-theme', settings.dark ? 'dark' : 'light')
   })
 
-  // On window resize: reposition any visible service webview
-  onMount(() => {
-    const observer = new ResizeObserver(() => {
-      if (contentAreaEl && isWebviewPage(page)) {
-        resizeService(page, contentAreaEl).catch(console.error)
-      }
-    })
-    requestAnimationFrame(() => {
-      if (contentAreaEl) observer.observe(contentAreaEl)
-    })
-    return () => observer.disconnect()
+  // Reposition the visible service webview when the content area resizes OR the
+  // hub window is moved (service windows are separate OS windows positioned in
+  // screen coordinates — they don't follow the hub on their own).
+  // $effect (not onMount) so a re-created content element (e.g. after
+  // onboarding unmounts the hub tree) is re-observed.
+  $effect(() => {
+    const el = contentAreaEl
+    if (!el) return
+    const reposition = () => {
+      if (isWebviewPage(page)) resizeService(page, el).catch(console.error)
+    }
+    const observer = new ResizeObserver(reposition)
+    observer.observe(el)
+    const unlistenMoved = getCurrentWindow().onMoved(reposition)
+    return () => {
+      observer.disconnect()
+      unlistenMoved.then(fn => fn())
+    }
   })
 
   // Keyboard shortcuts

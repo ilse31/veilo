@@ -11,8 +11,13 @@ pub fn start_stt_cmd(
     state: tauri::State<SttState>,
 ) -> Result<(), String> {
     let mut guard = state.0.lock().map_err(|e| e.to_string())?;
-    if guard.is_some() {
-        return Ok(());
+    // A handle whose worker thread already died (e.g. Windows speech
+    // recognition disabled) is stale — clear it so STT can restart.
+    if let Some(h) = guard.as_ref() {
+        if !h.is_finished() {
+            return Ok(());
+        }
+        *guard = None;
     }
     let handle = start_stt(app.clone())?;
     *guard = Some(handle);
@@ -107,16 +112,12 @@ pub fn save_config(app: AppHandle, mut config: Config) -> Result<(), String> {
     let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
     let old_config = read_config(&dir);
 
-    // 1. Dynamic hotkey registration
+    // 1. Dynamic hotkey registration — register the NEW one first so that if it
+    // fails (invalid/conflicting accelerator) the old hotkey keeps working and
+    // the hidden hub can still be summoned.
     if old_config.hotkey != config.hotkey {
         use tauri_plugin_global_shortcut::GlobalShortcutExt;
 
-        // Try to unregister the old hotkey
-        if let Ok(old_shortcut) = old_config.hotkey.parse::<tauri_plugin_global_shortcut::Shortcut>() {
-            let _ = app.global_shortcut().unregister(old_shortcut);
-        }
-
-        // Register the new hotkey
         let handle = app.clone();
         let new_hotkey = config.hotkey.clone();
         app.global_shortcut()
@@ -126,6 +127,11 @@ pub fn save_config(app: AppHandle, mut config: Config) -> Result<(), String> {
                 }
             })
             .map_err(|e| format!("Gagal mendaftarkan hotkey baru '{}': {}", new_hotkey, e))?;
+
+        // Only after the new one is live, drop the old one.
+        if let Ok(old_shortcut) = old_config.hotkey.parse::<tauri_plugin_global_shortcut::Shortcut>() {
+            let _ = app.global_shortcut().unregister(old_shortcut);
+        }
     }
 
     // 2. Autostart sync
@@ -242,7 +248,9 @@ pub fn open_service_webview(
 
     win.set_position(LogicalPosition::new(screen_x, screen_y)).map_err(|e| e.to_string())?;
     win.set_size(LogicalSize::new(width, height)).map_err(|e| e.to_string())?;
-    win.show().map_err(|e| e.to_string())?;
+    // Win32 show, not Tauri show(): the hotkey hide path uses protection::hide_window
+    // which leaves Tauri's internal visible flag `true`, making Tauri's show() a no-op.
+    crate::protection::show_no_activate(&win);
 
     Ok(())
 }
@@ -252,7 +260,8 @@ pub fn open_service_webview(
 pub fn hide_service_webview(app: AppHandle, service: String) -> Result<(), String> {
     let label = format!("svc-{service}");
     if let Some(w) = app.get_webview_window(&label) {
-        w.hide().map_err(|e| e.to_string())?;
+        // Win32 hide — Tauri's hide() is a no-op after show_no_activate.
+        crate::protection::hide_window(&w);
     }
     Ok(())
 }
@@ -541,6 +550,18 @@ pub async fn copilot_start_session(
 
     {
         let mut guard = state.0.lock().map_err(|e| e.to_string())?;
+        // Re-check under the lock: a concurrent start may have won the race
+        // during the async setup above. Tear this one down instead of silently
+        // dropping the winner (whose orchestrator/listener would leak).
+        if guard.is_some() {
+            audio.stop();
+            stt.stop();
+            orchestrator_handle.abort();
+            app.unlisten(listener_id);
+            let _ = crate::db::end_copilot_session(&db, sid);
+            let _ = crate::db::purge_copilot_session_data(&db, sid);
+            return Err("Session already running".into());
+        }
         *guard = Some(ActiveSession {
             id:                  sid,
             preset_id:           preset_id.clone(),
@@ -554,9 +575,10 @@ pub async fn copilot_start_session(
         });
     }
 
-    // Show copilot-card window if it exists (Task 10 creates it; this is graceful)
+    // Show copilot-card without activating it — SW_SHOW would focus the card,
+    // firing `blur` in the shared browser/meeting window (stealth leak).
     if let Some(w) = app.get_webview_window("copilot-card") {
-        let _ = w.show();
+        crate::protection::show_no_activate(&w);
     }
 
     let _ = app.emit("copilot-session-started", serde_json::json!({
@@ -588,7 +610,8 @@ pub async fn copilot_stop_session(
     }
 
     if let Some(w) = app.get_webview_window("copilot-card") {
-        let _ = w.hide();
+        // Win32 hide — Tauri's hide() is a no-op after show_no_activate.
+        crate::protection::hide_window(&w);
     }
 
     let _ = app.emit("copilot-session-ended", serde_json::json!({ "id": session.id }));

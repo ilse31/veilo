@@ -94,7 +94,14 @@ impl SttBackend for WhisperCloudStt {
                 clock_ms += CHUNK_MS;
                 let silent = is_silent_chunk(&chunk);
 
-                if utterance.is_empty() && !silent {
+                // Never start an utterance on silence — otherwise quiet periods
+                // flush an all-silence WAV to the API every second (continuous
+                // paid calls + Whisper's silence hallucinations in the transcript).
+                if utterance.is_empty() && silent {
+                    continue;
+                }
+
+                if utterance.is_empty() {
                     utt_start_ms = clock_ms - CHUNK_MS;
                 }
                 utterance.extend_from_slice(&chunk);

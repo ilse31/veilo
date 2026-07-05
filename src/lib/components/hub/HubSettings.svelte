@@ -1,6 +1,6 @@
 <script lang="ts">
   import { getCurrentWindow } from '@tauri-apps/api/window'
-  import { saveConfig, setAllContentProtected, setProfileValue, testAiConnection } from '$lib/tauri'
+  import { getConfig, saveConfig, setAllContentProtected, setProfileValue, testAiConnection } from '$lib/tauri'
   import { settings } from '$lib/stores/settings.svelte'
   import { setServiceUrl } from './webviewManager'
   import HotkeyRecorder from '$lib/components/HotkeyRecorder.svelte'
@@ -68,14 +68,14 @@
       await setProfileValue('api_url', settings.apiUrl)
       await setProfileValue('model', settings.model)
 
-      // Persist to disk (what Config supports)
+      // Persist to disk — merge onto a fresh config so fields this page does
+      // NOT edit (site, language, position) aren't clobbered with stale values.
+      const fresh = await getConfig()
       await saveConfig({
-        site:                   settings.urlClaude,
+        ...fresh,
         hotkey:                 settings.hotkey,
-        language:               'id-ID',
         opacity:                settings.opacity / 100,
         autostart:              settings.autostart,
-        position:               null,
         stt_backend:            settings.sttBackend,
         whisper_model:          settings.whisperModel,
         whisper_local_url:      settings.whisperLocalUrl,

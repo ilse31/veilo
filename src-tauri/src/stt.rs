@@ -6,11 +6,18 @@ use tauri::{AppHandle, Emitter};
 
 pub struct SttHandle {
     stop_flag: Arc<AtomicBool>,
+    finished:  Arc<AtomicBool>,
 }
 
 impl SttHandle {
     pub fn stop(&self) {
         self.stop_flag.store(true, Ordering::Relaxed);
+    }
+
+    /// True once the worker thread has exited (normally or on error).
+    /// Lets callers treat a stale handle as "not running" so STT can restart.
+    pub fn is_finished(&self) -> bool {
+        self.finished.load(Ordering::Relaxed)
     }
 }
 
@@ -20,17 +27,20 @@ impl SttHandle {
 /// Results are emitted as "stt-result" Tauri events.
 pub fn start_stt(app: AppHandle) -> Result<SttHandle, String> {
     let stop_flag = Arc::new(AtomicBool::new(false));
+    let finished = Arc::new(AtomicBool::new(false));
     let flag_clone = stop_flag.clone();
+    let finished_clone = finished.clone();
 
     std::thread::spawn(move || {
         if let Err(e) = run_stt(&app, &flag_clone) {
             eprintln!("[stt] {e}");
             let _ = app.emit("stt-error", e);
         }
+        finished_clone.store(true, Ordering::Relaxed);
         let _ = app.emit("stt-stopped", ());
     });
 
-    Ok(SttHandle { stop_flag })
+    Ok(SttHandle { stop_flag, finished })
 }
 
 // ── Windows implementation ────────────────────────────────────────────────────
