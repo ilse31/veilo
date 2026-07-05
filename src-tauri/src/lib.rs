@@ -1,3 +1,4 @@
+mod chat;
 mod commands;
 mod config;
 pub mod copilot;
@@ -82,6 +83,7 @@ pub fn run() {
             Some(vec![]),
         ))
         .manage(commands::SttState(std::sync::Mutex::new(None)))
+        .manage(chat::ChatAbortState::default())
         .setup(|app| {
             let app_data_dir = app.path().app_data_dir()?;
             let profile_db = db::open(&app_data_dir).map_err(|e| {
@@ -369,6 +371,9 @@ pub fn run() {
             commands::get_profile_value,
             commands::set_profile_value,
             commands::copilot_set_custom_instruction,
+            commands::test_ai_connection,
+            chat::chat_send,
+            chat::chat_stop,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -166,3 +166,38 @@ export async function resizeServiceWebview(
   return invoke('resize_service_webview', { service, x, y, width, height })
 }
 
+// ── AI connection test (bypasses browser CORS) ───────────────────────────────
+
+export async function testAiConnection(apiUrl: string, apiKey: string): Promise<number> {
+  return invoke<number>('test_ai_connection', { apiUrl, apiKey })
+}
+
+// ── Hub chat streaming (bypasses browser CORS) ───────────────────────────────
+
+export interface ChatMessage {
+  role: 'system' | 'user' | 'assistant'
+  content: string
+}
+
+export interface ChatDeltaEvent {
+  id: string
+  delta: string
+}
+
+/** Stream a chat completion. Returns the full text; tokens arrive via the
+ *  `chat-delta` event (filtered by `id`). On abort, returns the partial text. */
+export async function chatSend(
+  id: string,
+  apiUrl: string,
+  apiKey: string,
+  model: string,
+  messages: ChatMessage[],
+): Promise<string> {
+  return invoke<string>('chat_send', { id, apiUrl, apiKey, model, messages })
+}
+
+/** Cancel an in-flight chat stream. Returns true if a stream was found. */
+export async function chatStop(id: string): Promise<boolean> {
+  return invoke<boolean>('chat_stop', { id })
+}
+

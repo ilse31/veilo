@@ -1,11 +1,12 @@
 <script lang="ts">
   import { onMount } from 'svelte'
+  import { listen, type UnlistenFn } from '@tauri-apps/api/event'
   import { icons } from './icons'
   import { settings } from '$lib/stores/settings.svelte'
   import {
     listConversations, createConversation, deleteConversation,
     getMessages, appendMessage, updateConversationTitle,
-    type ConvRow, type MsgRow,
+    chatSend, chatStop, type ConvRow, type MsgRow, type ChatMessage, type ChatDeltaEvent,
   } from '$lib/tauri'
 
   interface Props {
@@ -32,7 +33,8 @@
   let streaming   = $state(false)
   let streamBuf   = $state('')
   let scrollEl    = $state<HTMLElement | null>(null)
-  let abortCtrl   = new AbortController()
+  let activeId    = ''               // current stream id (for cancellation)
+  let abortUnlisten: UnlistenFn | null = null
 
   onMount(async () => {
     await loadConvList()
@@ -65,14 +67,20 @@
     msgs         = []
     streamBuf    = ''
     streaming    = false
-    abortCtrl.abort()
-    abortCtrl = new AbortController()
+    await stopStream()
   }
 
   async function removeConv(id: number) {
     await deleteConversation(id)
     if (activeConvId === id) await newChat()
     await loadConvList()
+  }
+
+  async function stopStream() {
+    if (activeId) {
+      await chatStop(activeId).catch(() => {})
+    }
+    if (abortUnlisten) { abortUnlisten(); abortUnlisten = null }
   }
 
   async function send(override?: string) {
@@ -103,7 +111,6 @@
 
     streaming = true
     streamBuf = ''
-    abortCtrl = new AbortController()
 
     if (!apiUrl) {
       const body = 'URL API belum diatur. Buka Pengaturan → Koneksi AI Lokal.'
@@ -113,70 +120,39 @@
       return
     }
 
-    const base    = apiUrl.replace(/\/$/, '')
-    const history = msgs.slice(0, -1).map(m => ({ role: m.role, content: m.body }))
+    const history: ChatMessage[] = msgs.slice(0, -1).map(m => ({ role: m.role, content: m.body }))
+    const id = crypto.randomUUID()
+    activeId = id
+
+    // Subscribe to delta events for this stream id only.
+    abortUnlisten = await listen<ChatDeltaEvent>('chat-delta', (e) => {
+      if (e.payload.id !== id) return
+      streamBuf += e.payload.delta
+    })
 
     try {
-      const res = await fetch(`${base}/v1/chat/completions`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
-        },
-        body: JSON.stringify({
-          model,
-          messages: [...history, { role: 'user', content: text }],
-          stream: true,
-        }),
-        signal: abortCtrl.signal,
-      })
-
-      if (!res.ok) {
-        const errText = await res.text().catch(() => '')
-        const body = `Error HTTP ${res.status}${errText ? ': ' + errText.slice(0, 300) : ''}`
-        await appendMessage(convId, 'assistant', body)
-        msgs = [...msgs, { role: 'assistant', body }]
-        streaming = false
-        return
-      }
-
-      const reader  = res.body!.getReader()
-      const decoder = new TextDecoder()
-      let full = ''
-
-      outer: while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-        const chunk = decoder.decode(value, { stream: true })
-        for (const line of chunk.split('\n')) {
-          const trimmed = line.trim()
-          if (!trimmed.startsWith('data: ')) continue
-          const data = trimmed.slice(6)
-          if (data === '[DONE]') break outer
-          try {
-            const delta = JSON.parse(data)?.choices?.[0]?.delta?.content
-            if (delta) { full += delta; streamBuf = full }
-          } catch { /* malformed SSE line */ }
-        }
-      }
+      const full = await chatSend(id, apiUrl, apiKey || '', model,
+        [...history, { role: 'user', content: text }])
 
       const body = full || '(tidak ada respons)'
       await appendMessage(convId, 'assistant', body)
       msgs = [...msgs, { role: 'assistant', body }]
-    } catch (e: unknown) {
-      const body = (e as Error)?.name === 'AbortError'
-        ? streamBuf + ' ▪ [dihentikan]'
-        : `Gagal: ${e}`
+    } catch (e) {
+      // If something was already streamed before the error, keep it.
+      const partial = streamBuf ? streamBuf + '\n\n' : ''
+      const body = `${partial}Gagal: ${e}`
       await appendMessage(convId, 'assistant', body)
       msgs = [...msgs, { role: 'assistant', body }]
     } finally {
       streaming = false
-      streamBuf = ''
+      streamBuf  = ''
+      activeId   = ''
+      if (abortUnlisten) { abortUnlisten(); abortUnlisten = null }
       await loadConvList()
     }
   }
 
-  function stop() { abortCtrl.abort() }
+  function stop() { stopStream() }
 
   function handleKeydown(e: KeyboardEvent) {
     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); send() }

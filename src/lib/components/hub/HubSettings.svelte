@@ -1,6 +1,6 @@
 <script lang="ts">
   import { getCurrentWindow } from '@tauri-apps/api/window'
-  import { saveConfig, setAllContentProtected, setProfileValue } from '$lib/tauri'
+  import { saveConfig, setAllContentProtected, setProfileValue, testAiConnection } from '$lib/tauri'
   import { settings } from '$lib/stores/settings.svelte'
   import { setServiceUrl } from './webviewManager'
   import HotkeyRecorder from '$lib/components/HotkeyRecorder.svelte'
@@ -34,26 +34,23 @@
     }
   }
 
-  // ── Real API test — sends a minimal chat completion request
+  // ── Real API test — runs via Tauri Rust command (bypasses browser CORS)
   async function testConnection() {
     if (!settings.apiUrl) { testing = 'fail'; testMsg = 'URL tidak boleh kosong'; return }
     testing = 'pending'
     testMsg = ''
     try {
-      const base = settings.apiUrl.replace(/\/$/, '')
-      const res = await fetch(`${base}/v1/models`, {
-        headers: settings.apiKey ? { 'Authorization': `Bearer ${settings.apiKey}` } : {},
-      })
-      if (res.ok) {
+      const status = await testAiConnection(settings.apiUrl, settings.apiKey || '')
+      if (status >= 200 && status < 300) {
         testing = 'ok'
-        testMsg = `${res.status} OK`
+        testMsg = `${status} OK`
       } else {
         testing = 'fail'
-        testMsg = `HTTP ${res.status}`
+        testMsg = `HTTP ${status}`
       }
     } catch (e) {
       testing = 'fail'
-      testMsg = e instanceof TypeError ? 'Tidak dapat terhubung (CORS/jaringan)' : String(e)
+      testMsg = String(e)
     }
   }
 
