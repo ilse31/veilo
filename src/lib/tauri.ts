@@ -201,3 +201,7 @@ export async function chatStop(id: string): Promise<boolean> {
   return invoke<boolean>('chat_stop', { id })
 }
 
+export async function readMarkdownFile(path: string): Promise<string> {
+  return invoke('read_markdown_file', { path })
+}
+

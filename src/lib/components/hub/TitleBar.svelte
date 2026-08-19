@@ -1,5 +1,7 @@
 <script lang="ts">
   import { getCurrentWindow } from '@tauri-apps/api/window'
+  import { listen } from '@tauri-apps/api/event'
+  import { onMount } from 'svelte'
   import { setClickThrough } from '$lib/tauri'
 
   interface Props {
@@ -20,9 +22,16 @@
     maximized = await win.isMaximized()
   })
 
-  // Reset click-through indicator when window becomes visible again
-  win.onFocusChanged(({ payload: focused }) => {
-    if (focused) clickThrough = false
+  // Click-through can be force-disabled from the Rust side (Ctrl+Alt+T escape
+  // hatch, or automatically on hide/show) since a click-through window can't
+  // register a click on its own toggle button. Stay in sync with that.
+  onMount(() => {
+    const unlistenPromise = listen<boolean>('click-through-changed', ({ payload }) => {
+      clickThrough = payload
+    })
+    return () => {
+      unlistenPromise.then(unlisten => unlisten())
+    }
   })
 
   // For a skip-taskbar overlay, minimize = hide so the user can always
@@ -41,9 +50,21 @@
   {#if platform === 'mac'}
     <!-- macOS: traffic lights (close / minimise / maximise) -->
     <div class="lights">
-      <button class="hub-tl r" aria-label="Close"    onclick={close}></button>
-      <button class="hub-tl y" aria-label="Minimize"  onclick={minimize}></button>
-      <button class="hub-tl g" aria-label="Maximize"  onclick={toggleMaximize}></button>
+      <button class="hub-tl r" aria-label="Close" onclick={close}>
+        <svg class="tl-icon" width="7" height="7" viewBox="0 0 7 7" fill="none" stroke="#4d0000" stroke-width="1.1" stroke-linecap="round">
+          <path d="M1 1l5 5M6 1L1 6"/>
+        </svg>
+      </button>
+      <button class="hub-tl y" aria-label="Minimize" onclick={minimize}>
+        <svg class="tl-icon" width="7" height="7" viewBox="0 0 7 7" fill="none" stroke="#5c4300" stroke-width="1.1" stroke-linecap="round">
+          <path d="M1 3.5h5"/>
+        </svg>
+      </button>
+      <button class="hub-tl g" aria-label="Maximize" onclick={toggleMaximize}>
+        <svg class="tl-icon" width="7" height="7" viewBox="0 0 7 7" fill="none" stroke="#0a4d0a" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M1 4.5v1.5h1.5M1 6l2.2-2.2M6 2.5V1H4.5M6 1L3.8 3.2"/>
+        </svg>
+      </button>
     </div>
   {:else}
     <div style="width:1px"></div>
@@ -62,7 +83,7 @@
     onclick={toggleClickThrough}
     aria-label={clickThrough ? 'Nonaktifkan click-through' : 'Aktifkan click-through'}
     title={clickThrough
-      ? 'Click-through ON — klik menembus ke browser di bawah. Klik untuk nonaktifkan.'
+      ? 'Click-through ON — klik menembus ke browser di bawah. Tekan Ctrl+Alt+T untuk nonaktifkan.'
       : 'Click-through OFF — aktifkan agar browser tidak kehilangan fokus'}
   >
     <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
@@ -144,6 +165,16 @@
     cursor: default;
     border: none;
     padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .tl-icon {
+    opacity: 0;
+    transition: opacity 0.08s;
+  }
+  .lights:hover .tl-icon {
+    opacity: 1;
   }
   .title-center {
     flex: 1; text-align: center;

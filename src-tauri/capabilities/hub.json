@@ -15,6 +15,7 @@
     "core:window:allow-toggle-maximize",
     "core:window:allow-close",
     "core:window:allow-is-maximized",
-    "autostart:default"
+    "autostart:default",
+    "dialog:default"
   ]
 }

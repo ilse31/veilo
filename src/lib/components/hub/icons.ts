@@ -16,4 +16,5 @@ export const icons = {
   zap:       `M13 2 4 14h7l-1 8 9-12h-7l1-8z`,
   check:     `M5 13l4 4L19 7`,
   globe:     `<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 010 18M12 3a14 14 0 000 18"/>`,
+  fileText:  `<path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/><path d="M8 13h8M8 17h8M8 9h2"/>`,
 }

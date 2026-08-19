@@ -65,6 +65,7 @@ pub fn toggle_visibility(app: AppHandle) {
 
     if currently_shown {
         let _ = hub.set_ignore_cursor_events(false);
+        let _ = app.emit("click-through-changed", false);
         // Use Win32 directly — Tauri's hide() is a no-op when Tauri's internal
         // visible flag is already false (which happens after show_no_activate).
         crate::protection::hide_window(&hub);
@@ -669,6 +670,12 @@ pub async fn test_ai_connection(
     }
     let resp = req.send().await.map_err(|e| e.to_string())?;
     Ok(resp.status().as_u16())
+}
+
+/// Read a markdown file's contents from disk for display in the Markdown Reader page.
+#[tauri::command]
+pub fn read_markdown_file(path: String) -> Result<String, String> {
+    std::fs::read_to_string(&path).map_err(|e| e.to_string())
 }
 
 #[cfg(test)]

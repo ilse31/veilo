@@ -8,7 +8,7 @@ mod protection;
 mod stt;
 mod tray;
 
-use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
+use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 
 pub const INJECT_BOOTSTRAP: &str = r#"
 (function() {
@@ -77,6 +77,7 @@ pub const INJECT_BOOTSTRAP: &str = r#"
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
@@ -114,7 +115,7 @@ pub fn run() {
             let mut ai_view_builder = WebviewWindowBuilder::new(
                 app,
                 "ai-view",
-                hub_url,
+                hub_url, 
             )
             .title("no‑screen")
             .decorations(false)
@@ -322,6 +323,21 @@ pub fn run() {
                     }
                 })?;
 
+            // Force-disable click-through (Ctrl+Alt+T) — escape hatch: once click-through
+            // is on, the hub window ignores all mouse events (including its own "Tembus"
+            // button), so there is no in-window way to click it off again.
+            let handle6 = app.handle().clone();
+            app.handle()
+                .global_shortcut()
+                .on_shortcut("Ctrl+Alt+T", move |_app, _shortcut, event| {
+                    if event.state == ShortcutState::Pressed {
+                        if let Some(w) = handle6.get_webview_window("ai-view") {
+                            let _ = w.set_ignore_cursor_events(false);
+                            let _ = handle6.emit("click-through-changed", false);
+                        }
+                    }
+                })?;
+
             // Copilot: force regenerate suggestion (Ctrl+Alt+R)
             let handle5 = app.handle().clone();
             app.handle()
@@ -377,6 +393,7 @@ pub fn run() {
             commands::test_ai_connection,
             chat::chat_send,
             chat::chat_stop,
+            commands::read_markdown_file,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

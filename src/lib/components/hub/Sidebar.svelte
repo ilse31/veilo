@@ -23,6 +23,7 @@
     { id: 'translate', label: 'Terjemahan', kbd: '⌘4', src: 'translate' },
     { id: 'chat',      label: 'Obrolan AI', kbd: '⌘5', src: 'native' },
   ]
+  const navMarkdown = { id: 'markdown', label: 'Baca Markdown', icon: 'fileText' as const, kbd: '⌘7' }
   const navSettings = { id: 'settings', label: 'Pengaturan', icon: 'settings' as const, kbd: '⌘,' }
 </script>
 
@@ -73,6 +74,26 @@
       </span>
       <span>{navCopilot.label}</span>
       <span class="kbd">{navCopilot.kbd}</span>
+    </div>
+  </div>
+
+  <!-- Alat -->
+  <div class="hub-section-label">Alat</div>
+  <div class="hub-nav-list">
+    <div
+      class="hub-nav-item {current === navMarkdown.id ? 'active' : ''}"
+      onclick={() => onNav(navMarkdown.id)}
+      role="button" tabindex="0"
+      onkeydown={(e) => e.key === 'Enter' && onNav(navMarkdown.id)}
+    >
+      <span class="ic">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
+             stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+          {@html icons[navMarkdown.icon]}
+        </svg>
+      </span>
+      <span>{navMarkdown.label}</span>
+      <span class="kbd">{navMarkdown.kbd}</span>
     </div>
   </div>
 

@@ -7,6 +7,7 @@
   import Dashboard from './hub/Dashboard.svelte'
   import NativeChat from './hub/NativeChat.svelte'
   import HubSettings from './hub/HubSettings.svelte'
+  import MarkdownReader from './hub/MarkdownReader.svelte'
   import Onboarding from './hub/Onboarding.svelte'
   import GhostTypingBar from './hub/GhostTypingBar.svelte'
   import { getConfig, getProfileName, injectToService, getProfileValue } from '$lib/tauri'
@@ -23,7 +24,7 @@
     SERVICES,
   } from './hub/webviewManager'
 
-  type Page = 'onboarding' | 'dashboard' | Service | 'chat' | 'settings' | 'copilot'
+  type Page = 'onboarding' | 'dashboard' | Service | 'chat' | 'settings' | 'copilot' | 'markdown'
 
   const pageTitles: Record<Page, string> = {
     onboarding: 'Selamat Datang',
@@ -34,6 +35,7 @@
     chat:       'Obrolan AI',
     settings:   'Pengaturan',
     copilot:    'Copilot',
+    markdown:   'Baca Markdown',
   }
 
   const webviewUrls: Record<Service, string> = {
@@ -145,7 +147,7 @@
       if (!(e.metaKey || e.ctrlKey)) return
       const map: Record<string, Page> = {
         '1': 'dashboard', '2': 'gpt', '3': 'claude',
-        '4': 'translate', '5': 'chat', ',': 'settings', '6': 'copilot',
+        '4': 'translate', '5': 'chat', ',': 'settings', '6': 'copilot', '7': 'markdown',
       }
       if (map[e.key]) { e.preventDefault(); setPage(map[e.key] as Page) }
     }
@@ -277,6 +279,9 @@
 
       {:else if page === 'copilot'}
         <CopilotPanel onStartClick={() => showStartModal = true} />
+
+      {:else if page === 'markdown'}
+        <MarkdownReader />
 
       {:else if isWebviewPage(page)}
         {#if webviewError}
