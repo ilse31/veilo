@@ -1,6 +1,8 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { listen, type UnlistenFn } from '@tauri-apps/api/event'
+  import { marked } from 'marked'
+  import DOMPurify from 'dompurify'
   import { icons } from './icons'
   import { settings } from '$lib/stores/settings.svelte'
   import {
@@ -25,6 +27,13 @@
   }: Props = $props()
 
   type Msg = { role: 'user' | 'assistant'; body: string }
+
+  marked.setOptions({ breaks: true, gfm: true })
+
+  /** Render assistant markdown to sanitized HTML. User messages stay plain text. */
+  function renderMd(text: string): string {
+    return DOMPurify.sanitize(marked.parse(text) as string)
+  }
 
   let convList    = $state<ConvRow[]>([])
   let activeConvId = $state<number | null>(null)
@@ -242,7 +251,11 @@
             <div class="av">{m.role === 'user' ? displayName[0].toUpperCase() : 'N'}</div>
             <div>
               <div class="role">{m.role === 'user' ? displayName : `AI Lokal · ${model}`}</div>
-              <div class="body">{m.body}</div>
+              {#if m.role === 'assistant'}
+                <div class="body md">{@html renderMd(m.body)}</div>
+              {:else}
+                <div class="body">{m.body}</div>
+              {/if}
             </div>
           </div>
         {/each}
@@ -251,7 +264,7 @@
             <div class="av">N</div>
             <div>
               <div class="role">AI Lokal · {model}</div>
-              <div class="body">{streamBuf}<span class="hub-cursor-blink"></span></div>
+              <div class="body md">{@html renderMd(streamBuf)}<span class="hub-cursor-blink"></span></div>
             </div>
           </div>
         {/if}
