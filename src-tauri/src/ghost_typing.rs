@@ -36,6 +36,12 @@ mod imp {
         SetWindowsHookExW, UnhookWindowsHookEx, HHOOK, KBDLLHOOKSTRUCT, MSG,
         WH_KEYBOARD_LL, WM_KEYDOWN, WM_QUIT, WM_SYSKEYDOWN,
     };
+    use windows::Win32::System::DataExchange::{CloseClipboard, GetClipboardData, OpenClipboard};
+    use windows::Win32::System::Memory::{GlobalLock, GlobalUnlock};
+    use windows::Win32::System::Ole::CF_UNICODETEXT;
+
+    /// Virtual key for the 'V' key — not a named constant in the `windows` crate.
+    const VK_V: VIRTUAL_KEY = VIRTUAL_KEY(0x56);
 
     static ACTIVE: AtomicBool = AtomicBool::new(false);
     static THREAD_ID: Mutex<u32> = Mutex::new(0);
@@ -55,6 +61,7 @@ mod imp {
         Right,
         Home,
         End,
+        Paste(String),
     }
 
     pub fn is_active() -> bool {
@@ -159,6 +166,21 @@ mod imp {
             return LRESULT(1);
         }
 
+        // Ctrl+V: the browser never sees this keystroke (it's consumed like every
+        // other key here), so paste has to be reimplemented — read the clipboard
+        // ourselves and hand the text to the frontend as one ghost-key event.
+        let ctrl_down = (GetAsyncKeyState(VK_CONTROL.0 as i32) as u16) & 0x8000 != 0;
+        if vk == VK_V && ctrl_down {
+            if let Some(text) = read_clipboard_text() {
+                if let Ok(guard) = APP.lock() {
+                    if let Some(app) = guard.as_ref() {
+                        let _ = app.emit("ghost-key", &GhostKey::Paste(text));
+                    }
+                }
+            }
+            return LRESULT(1);
+        }
+
         let key = match vk {
             VK_BACK => Some(GhostKey::Backspace),
             VK_DELETE => Some(GhostKey::Delete),
@@ -182,6 +204,27 @@ mod imp {
         }
 
         LRESULT(1) // consume — browser never receives this keystroke
+    }
+
+    /// Read clipboard text (CF_UNICODETEXT) via raw Win32 calls.
+    unsafe fn read_clipboard_text() -> Option<String> {
+        OpenClipboard(None).ok()?;
+        let text = (|| {
+            let handle = GetClipboardData(CF_UNICODETEXT.0 as u32).ok()?;
+            let ptr = GlobalLock(windows::Win32::Foundation::HGLOBAL(handle.0)) as *const u16;
+            if ptr.is_null() {
+                return None;
+            }
+            let mut len = 0usize;
+            while *ptr.add(len) != 0 {
+                len += 1;
+            }
+            let s = String::from_utf16_lossy(std::slice::from_raw_parts(ptr, len));
+            let _ = GlobalUnlock(windows::Win32::Foundation::HGLOBAL(handle.0));
+            Some(s)
+        })();
+        let _ = CloseClipboard();
+        text
     }
 
     /// Convert a virtual key to a Unicode character, respecting shift / caps lock.

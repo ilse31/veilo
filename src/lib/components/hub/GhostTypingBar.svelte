@@ -20,6 +20,7 @@
     | { type: 'Right' }
     | { type: 'Home' }
     | { type: 'End' }
+    | { type: 'Paste'; value: string }
 
   let text   = $state('')
   let cursor = $state(0)   // caret position within text
@@ -32,6 +33,10 @@
       case 'Char':
         text   = text.slice(0, cursor) + payload.value + text.slice(cursor)
         cursor++
+        break
+      case 'Paste':
+        text   = text.slice(0, cursor) + payload.value + text.slice(cursor)
+        cursor += payload.value.length
         break
       case 'Backspace':
         if (cursor > 0) {

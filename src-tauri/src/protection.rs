@@ -18,7 +18,7 @@ pub fn show_no_activate(window: &WebviewWindow) {
     {
         use windows::Win32::UI::WindowsAndMessaging::{ShowWindow, SW_SHOWNOACTIVATE};
         if let Some(hwnd) = get_hwnd(window) {
-            unsafe { ShowWindow(hwnd, SW_SHOWNOACTIVATE); }
+            unsafe { let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE); }
         }
     }
     #[cfg(not(windows))]
@@ -35,7 +35,7 @@ pub fn hide_window(window: &WebviewWindow) {
     {
         use windows::Win32::UI::WindowsAndMessaging::{ShowWindow, SW_HIDE};
         if let Some(hwnd) = get_hwnd(window) {
-            unsafe { ShowWindow(hwnd, SW_HIDE); }
+            unsafe { let _ = ShowWindow(hwnd, SW_HIDE); }
         }
     }
     #[cfg(not(windows))]
