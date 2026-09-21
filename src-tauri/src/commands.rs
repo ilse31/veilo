@@ -399,6 +399,12 @@ pub fn append_message(db: tauri::State<crate::db::Db>, conv_id: i64, role: Strin
     crate::db::append_message(&db, conv_id, &role, &body).map_err(|e| e.to_string())
 }
 
+/// Dashboard stats. `today_start` is local midnight (unix seconds).
+#[tauri::command]
+pub fn get_usage_stats(db: tauri::State<crate::db::Db>, today_start: i64) -> Result<crate::db::UsageStats, String> {
+    crate::db::get_usage_stats(&db, today_start).map_err(|e| e.to_string())
+}
+
 /// Toggle ghost typing mode — called by the Ctrl+Alt+G global shortcut.
 /// Applies WS_EX_NOACTIVATE so the hub never steals focus, then starts
 /// the low-level keyboard hook that intercepts all keystrokes.

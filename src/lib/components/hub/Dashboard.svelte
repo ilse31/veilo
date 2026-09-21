@@ -1,15 +1,21 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   import { icons } from "./icons";
 
   import { settings } from '$lib/stores/settings.svelte'
+  import { listConversations, getUsageStats, type ConvRow, type UsageStats } from '$lib/tauri'
+  import {
+    formatDelta, formatLatency, formatTokens, hostOf, relativeTime, todayStart,
+  } from '$lib/dashboardFormat'
 
   interface Props {
     apiUrl?: string;
     apiKey?: string;
     onNav?: (page: string) => void;
     onPrompt?: (provider: string, text: string) => void;
+    onOpenConversation?: (id: number) => void;
   }
-  let { apiUrl = "", apiKey = "", onNav, onPrompt }: Props = $props();
+  let { apiUrl = "", apiKey = "", onNav, onPrompt, onOpenConversation }: Props = $props();
 
   let draft = $state("");
   let activeProvider = $state("native");
@@ -21,6 +27,43 @@
     { id: "translate", label: "Terjemah", color: "#4285f4" },
   ];
 
+
+  const RECENT_LIMIT = 6;
+  const BADGE_COLORS = ["#5e6ad2", "#19c37d", "#d97757", "#4285f4"];
+
+  let recent = $state<ConvRow[]>([]);
+  let stats = $state<UsageStats | null>(null);
+
+  onMount(async () => {
+    const [convs, usage] = await Promise.allSettled([
+      listConversations(),
+      getUsageStats(todayStart()),
+    ]);
+    if (convs.status === "fulfilled") recent = convs.value.slice(0, RECENT_LIMIT);
+    if (usage.status === "fulfilled") stats = usage.value;
+  });
+
+  const badgeOf = (title: string) => (title.trim()[0] ?? "?").toUpperCase();
+  const badgeColor = (id: number) => BADGE_COLORS[id % BADGE_COLORS.length];
+
+  type Status = { name: string; host: string; label: string; tone: "ok" | "warn" };
+  const services = $derived<Status[]>([
+    {
+      name: "AI Lokal",
+      host: apiUrl ? hostOf(apiUrl) : "belum diatur",
+      label: apiUrl ? "Aktif" : "Belum diatur",
+      tone: apiUrl ? "ok" : "warn",
+    },
+    { name: "ChatGPT (webview)", host: hostOf(settings.urlGpt), label: "Siap", tone: "ok" },
+    { name: "Claude (webview)", host: hostOf(settings.urlClaude), label: "Siap", tone: "ok" },
+    { name: "Google Translate", host: hostOf(settings.urlTranslate), label: "Siap", tone: "ok" },
+    {
+      name: "Mode Senyap",
+      host: "screen-share filter",
+      label: settings.contentProtected ? "Aktif" : "Standby",
+      tone: settings.contentProtected ? "ok" : "warn",
+    },
+  ]);
 
   const hour = new Date().getHours();
   const greet =
@@ -128,6 +171,57 @@
           onkeydown={() => {}}>Tulis email</span
         >
       </div>
+    </div>
+
+    <div class="hub-grid-2">
+      <section>
+        <h3 class="hub-section-title">
+          Riwayat Terbaru
+          <button class="more" onclick={() => onNav?.("chat")}>Lihat semua →</button>
+        </h3>
+        <div class="hub-card hub-recent-list">
+          {#each recent as c (c.id)}
+            <button class="hub-recent-item" onclick={() => onOpenConversation?.(c.id)}>
+              <span class="src-icon" style="background:{badgeColor(c.id)}">{badgeOf(c.title)}</span>
+              <span class="title-line">{c.title}</span>
+              <span class="meta">{relativeTime(c.created_at)}</span>
+            </button>
+          {:else}
+            <p class="hub-empty">Belum ada obrolan. Mulai dengan menulis pertanyaan di atas.</p>
+          {/each}
+        </div>
+      </section>
+
+      <section>
+        <h3 class="hub-section-title">Status Sistem</h3>
+        <div class="hub-kpi-row">
+          <div class="hub-kpi">
+            <div class="k">Pesan hari ini</div>
+            <div class="v">{stats?.messages_today ?? "—"}</div>
+            <div class="d">{stats ? formatDelta(stats.messages_today, stats.messages_yesterday) : ""}</div>
+          </div>
+          <div class="hub-kpi">
+            <div class="k">Token terpakai</div>
+            <div class="v">{stats ? `${stats.tokens_estimated ? "≈" : ""}${formatTokens(stats.tokens_today)}` : "—"}</div>
+            <div class="d">{stats?.tokens_estimated ? "hari ini (perkiraan)" : "hari ini"}</div>
+          </div>
+          <div class="hub-kpi">
+            <div class="k">Latensi rata-rata</div>
+            <div class="v">{formatLatency(stats?.avg_latency_ms ?? null)}</div>
+            <div class="d">7 hari terakhir</div>
+          </div>
+        </div>
+        <div class="hub-card hub-status-list">
+          {#each services as svc (svc.name)}
+            <div class="hub-status-row">
+              <span class="dot {svc.tone}"></span>
+              <span class="name">{svc.name}</span>
+              <span class="val">{svc.host}</span>
+              <span class="badge" class:warn={svc.tone === "warn"}>{svc.label}</span>
+            </div>
+          {/each}
+        </div>
+      </section>
     </div>
   </div>
 </div>

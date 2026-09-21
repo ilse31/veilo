@@ -378,6 +378,7 @@ pub fn run() {
             commands::delete_conversation,
             commands::get_messages,
             commands::append_message,
+            commands::get_usage_stats,
             commands::set_click_through,
             commands::start_ghost_typing_cmd,
             commands::stop_ghost_typing_cmd,

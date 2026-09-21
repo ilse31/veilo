@@ -17,6 +17,8 @@
     model?: string
     initialPrompt?: string | null
     onConsumeInitial?: () => void
+    initialConvId?: number | null
+    onConsumeInitialConv?: () => void
   }
   let {
     apiUrl = '',
@@ -24,6 +26,8 @@
     model = 'gpt-4o-mini',
     initialPrompt = null,
     onConsumeInitial,
+    initialConvId = null,
+    onConsumeInitialConv,
   }: Props = $props()
 
   type Msg = { role: 'user' | 'assistant'; body: string }
@@ -51,6 +55,10 @@
 
   onMount(async () => {
     await loadConvList()
+    if (initialConvId !== null) {
+      await selectConv(initialConvId)
+      onConsumeInitialConv?.()
+    }
   })
 
   $effect(() => {
@@ -171,7 +179,7 @@
 
     try {
       const full = await chatSend(id, apiUrl, apiKey || '', model,
-        [...history, { role: 'user', content: text }])
+        [...history, { role: 'user', content: text }], convId)
 
       const body = full || '(tidak ada respons)'
       await appendMessage(convId, 'assistant', body)

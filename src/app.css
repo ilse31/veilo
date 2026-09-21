@@ -382,17 +382,24 @@ html, body {
   display: grid; grid-template-columns: 1.4fr 1fr;
   gap: 16px; margin-top: 22px;
 }
+@media (max-width: 860px) { .hub-grid-2 { grid-template-columns: 1fr; } }
 .hub-section-title {
   font-size: 13px; font-weight: 600; color: var(--text);
   margin: 0 0 10px;
   display: flex; align-items: center; justify-content: space-between;
 }
-.hub-section-title .more { font-size: 12px; color: var(--text-soft); font-weight: 400; }
+.hub-section-title .more {
+  font-size: 12px; color: var(--text-soft); font-weight: 400;
+  background: none; border: 0; padding: 0; font-family: inherit; cursor: pointer;
+}
+.hub-section-title .more:hover { color: var(--text); }
+.hub-empty { margin: 0; padding: 14px 12px; font-size: 12.5px; color: var(--text-soft); }
 
-.hub-recent-list { display: flex; flex-direction: column; gap: 1px; }
+.hub-recent-list { display: flex; flex-direction: column; gap: 1px; padding: 6px; }
 .hub-recent-item {
-  display: flex; align-items: center; gap: 12px;
-  padding: 10px 12px; border-radius: 7px; cursor: default;
+  display: flex; align-items: center; gap: 12px; width: 100%;
+  padding: 10px 12px; border-radius: 7px; cursor: pointer;
+  background: none; border: 0; text-align: left; font-family: inherit;
 }
 .hub-recent-item:hover { background: var(--bg-hover); }
 .hub-recent-item .src-icon {
@@ -434,6 +441,10 @@ html, body {
 .hub-status-row {
   display: flex; align-items: center; gap: 10px; font-size: 13px;
 }
+.hub-status-list { padding: 14px 16px; }
+.hub-status-row .dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.hub-status-row .dot.ok   { background: var(--green); }
+.hub-status-row .dot.warn { background: var(--amber); }
 .hub-status-row .name { color: var(--text); font-weight: 500; flex: 1; }
 .hub-status-row .val  { color: var(--text-mid); font-family: var(--mono); font-size: 11.5px; }
 .hub-status-row .badge {

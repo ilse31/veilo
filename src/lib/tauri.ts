@@ -144,6 +144,19 @@ export async function appendMessage(convId: number, role: 'user' | 'assistant', 
   return invoke('append_message', { convId, role, body })
 }
 
+export interface UsageStats {
+  messages_today: number
+  messages_yesterday: number
+  tokens_today: number
+  tokens_estimated: boolean
+  avg_latency_ms: number | null
+}
+
+/** `todayStart` is local midnight as unix seconds. */
+export async function getUsageStats(todayStart: number): Promise<UsageStats> {
+  return invoke<UsageStats>('get_usage_stats', { todayStart })
+}
+
 export async function setClickThrough(enabled: boolean): Promise<void> {
   return invoke('set_click_through', { enabled })
 }
@@ -197,8 +210,9 @@ export async function chatSend(
   apiKey: string,
   model: string,
   messages: ChatMessage[],
+  convId?: number,
 ): Promise<string> {
-  return invoke<string>('chat_send', { id, apiUrl, apiKey, model, messages })
+  return invoke<string>('chat_send', { id, apiUrl, apiKey, model, messages, convId })
 }
 
 /** Cancel an in-flight chat stream. Returns true if a stream was found. */

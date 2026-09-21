@@ -30,6 +30,17 @@ pub fn open(app_data_dir: &Path) -> Result<Db> {
              created_at      INTEGER NOT NULL DEFAULT (unixepoch())
          );
 
+         CREATE TABLE IF NOT EXISTS chat_usage (
+             id                INTEGER PRIMARY KEY AUTOINCREMENT,
+             conversation_id   INTEGER REFERENCES conversations(id) ON DELETE SET NULL,
+             prompt_tokens     INTEGER,
+             completion_tokens INTEGER,
+             tokens_estimated  INTEGER NOT NULL DEFAULT 0,
+             latency_ms        INTEGER NOT NULL,
+             created_at        INTEGER NOT NULL DEFAULT (unixepoch())
+         );
+         CREATE INDEX IF NOT EXISTS idx_chat_usage_created ON chat_usage(created_at);
+
          CREATE TABLE IF NOT EXISTS copilot_sessions (
              id               INTEGER PRIMARY KEY AUTOINCREMENT,
              preset_id        TEXT    NOT NULL,
@@ -59,6 +70,16 @@ pub fn open(app_data_dir: &Path) -> Result<Db> {
          );
          CREATE INDEX IF NOT EXISTS idx_suggestions_session ON copilot_suggestions(session_id);",
     )?;
+    // chat_usage predates `tokens_estimated` in dev builds; add it to older tables.
+    let has_estimated = conn
+        .prepare("SELECT 1 FROM pragma_table_info('chat_usage') WHERE name = 'tokens_estimated'")?
+        .exists([])?;
+    if !has_estimated {
+        conn.execute(
+            "ALTER TABLE chat_usage ADD COLUMN tokens_estimated INTEGER NOT NULL DEFAULT 0",
+            [],
+        )?;
+    }
     Ok(Db(Mutex::new(conn)))
 }
 
@@ -164,6 +185,79 @@ pub fn append_message(db: &Db, conv_id: i64, role: &str, body: &str) -> Result<(
         params![conv_id, role, body],
     )?;
     Ok(())
+}
+
+// ── Chat usage ───────────────────────────────────────────────────────────────
+
+/// Record one completed chat stream. `estimated` marks token counts guessed
+/// from text length because the server reported no `usage`; `latency_ms` is
+/// time to the first token.
+pub fn record_chat_usage(
+    db: &Db,
+    conv_id: Option<i64>,
+    prompt_tokens: i64,
+    completion_tokens: i64,
+    estimated: bool,
+    latency_ms: i64,
+) -> Result<()> {
+    let conn = db.0.lock().unwrap();
+    conn.execute(
+        "INSERT INTO chat_usage(conversation_id, prompt_tokens, completion_tokens, tokens_estimated, latency_ms)
+         VALUES(?1, ?2, ?3, ?4, ?5)",
+        params![conv_id, prompt_tokens, completion_tokens, estimated, latency_ms],
+    )?;
+    Ok(())
+}
+
+#[derive(Serialize, Debug, PartialEq)]
+pub struct UsageStats {
+    pub messages_today:     i64,
+    pub messages_yesterday: i64,
+    pub tokens_today:       i64,
+    /// True when any of today's token counts are estimates, not server-reported.
+    pub tokens_estimated:   bool,
+    /// Mean time-to-first-token over the last 7 days; `None` with no samples.
+    pub avg_latency_ms:     Option<i64>,
+}
+
+/// `today_start` is local midnight as a unix timestamp, supplied by the caller
+/// because SQLite only knows UTC. Only user messages count as "messages".
+pub fn get_usage_stats(db: &Db, today_start: i64) -> Result<UsageStats> {
+    let conn = db.0.lock().unwrap();
+    let day = 86_400;
+    let user_msgs = |from: i64, to: i64| -> Result<i64> {
+        conn.query_row(
+            "SELECT COUNT(*) FROM messages
+             WHERE role = 'user' AND created_at >= ?1 AND created_at < ?2",
+            params![from, to],
+            |r| r.get(0),
+        )
+    };
+    let messages_today = user_msgs(today_start, i64::MAX)?;
+    let messages_yesterday = user_msgs(today_start - day, today_start)?;
+    let tokens_today = conn.query_row(
+        "SELECT COALESCE(SUM(COALESCE(prompt_tokens, 0) + COALESCE(completion_tokens, 0)), 0)
+         FROM chat_usage WHERE created_at >= ?1",
+        params![today_start],
+        |r| r.get(0),
+    )?;
+    let tokens_estimated: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM chat_usage WHERE created_at >= ?1 AND tokens_estimated = 1)",
+        params![today_start],
+        |r| r.get(0),
+    )?;
+    let avg_latency_ms: Option<f64> = conn.query_row(
+        "SELECT AVG(latency_ms) FROM chat_usage WHERE created_at >= ?1",
+        params![today_start - 6 * day],
+        |r| r.get(0),
+    )?;
+    Ok(UsageStats {
+        messages_today,
+        messages_yesterday,
+        tokens_today,
+        tokens_estimated,
+        avg_latency_ms: avg_latency_ms.map(|v| v.round() as i64),
+    })
 }
 
 // ── Copilot ──────────────────────────────────────────────────────────────────
@@ -395,5 +489,117 @@ mod tests {
         let db = open(dir.path()).unwrap();
         let res = end_copilot_session(&db, 99999);
         assert!(res.is_err(), "ending a nonexistent session should error");
+    }
+
+    const DAY: i64 = 86_400;
+    const TODAY: i64 = 1_800_000_000;
+
+    fn test_db() -> (tempfile::TempDir, Db) {
+        let dir = tempdir().unwrap();
+        let db = open(dir.path()).unwrap();
+        (dir, db)
+    }
+
+    fn add_msg(db: &Db, conv: i64, role: &str, at: i64) {
+        db.0.lock().unwrap().execute(
+            "INSERT INTO messages(conversation_id, role, body, created_at) VALUES(?1, ?2, 'x', ?3)",
+            params![conv, role, at],
+        ).unwrap();
+    }
+
+    fn add_usage(db: &Db, prompt: Option<i64>, completion: Option<i64>, latency: i64, at: i64) {
+        db.0.lock().unwrap().execute(
+            "INSERT INTO chat_usage(prompt_tokens, completion_tokens, latency_ms, created_at)
+             VALUES(?1, ?2, ?3, ?4)",
+            params![prompt, completion, latency, at],
+        ).unwrap();
+    }
+
+    #[test]
+    fn stats_are_empty_without_data() {
+        let (_d, db) = test_db();
+        assert_eq!(
+            get_usage_stats(&db, TODAY).unwrap(),
+            UsageStats {
+                messages_today: 0, messages_yesterday: 0, tokens_today: 0,
+                tokens_estimated: false, avg_latency_ms: None,
+            },
+        );
+    }
+
+    #[test]
+    fn counts_only_user_messages_per_day() {
+        let (_d, db) = test_db();
+        let conv = create_conversation(&db, "t").unwrap();
+        add_msg(&db, conv, "user", TODAY + 10);
+        add_msg(&db, conv, "assistant", TODAY + 11);
+        add_msg(&db, conv, "user", TODAY - 10);
+        add_msg(&db, conv, "user", TODAY - DAY - 10); // two days ago
+        let s = get_usage_stats(&db, TODAY).unwrap();
+        assert_eq!((s.messages_today, s.messages_yesterday), (1, 1));
+    }
+
+    #[test]
+    fn sums_todays_tokens_and_tolerates_missing_usage() {
+        let (_d, db) = test_db();
+        add_usage(&db, Some(10), Some(20), 100, TODAY + 1);
+        add_usage(&db, None, None, 100, TODAY + 2);
+        add_usage(&db, Some(500), Some(500), 100, TODAY - 1); // yesterday
+        assert_eq!(get_usage_stats(&db, TODAY).unwrap().tokens_today, 30);
+    }
+
+    #[test]
+    fn flags_estimated_tokens_only_for_today() {
+        let (_d, db) = test_db();
+        record_chat_usage(&db, None, 5, 5, false, 10).unwrap();
+        assert!(!get_usage_stats(&db, 0).unwrap().tokens_estimated);
+        record_chat_usage(&db, None, 5, 5, true, 10).unwrap();
+        let s = get_usage_stats(&db, 0).unwrap();
+        assert!(s.tokens_estimated);
+        assert_eq!(s.tokens_today, 20);
+        // The estimated row is not from today's window.
+        assert!(!get_usage_stats(&db, i64::MAX / 2).unwrap().tokens_estimated);
+    }
+
+    #[test]
+    fn open_adds_tokens_estimated_to_an_older_chat_usage_table() {
+        let dir = tempdir().unwrap();
+        {
+            let conn = Connection::open(dir.path().join("profile.db")).unwrap();
+            conn.execute_batch(
+                "CREATE TABLE chat_usage (
+                     id INTEGER PRIMARY KEY AUTOINCREMENT,
+                     conversation_id INTEGER,
+                     prompt_tokens INTEGER,
+                     completion_tokens INTEGER,
+                     latency_ms INTEGER NOT NULL,
+                     created_at INTEGER NOT NULL DEFAULT (unixepoch())
+                 );
+                 INSERT INTO chat_usage(prompt_tokens, completion_tokens, latency_ms) VALUES(1, 2, 3);",
+            ).unwrap();
+        }
+        let db = open(dir.path()).unwrap();
+        let s = get_usage_stats(&db, 0).unwrap();
+        assert_eq!((s.tokens_today, s.tokens_estimated), (3, false));
+        open(dir.path()).unwrap(); // reopening is idempotent
+    }
+
+    #[test]
+    fn averages_latency_over_seven_days() {
+        let (_d, db) = test_db();
+        add_usage(&db, None, None, 100, TODAY + 1);
+        add_usage(&db, None, None, 301, TODAY - 6 * DAY);
+        add_usage(&db, None, None, 9_999, TODAY - 7 * DAY); // outside window
+        assert_eq!(get_usage_stats(&db, TODAY).unwrap().avg_latency_ms, Some(201));
+    }
+
+    #[test]
+    fn record_chat_usage_persists_a_row() {
+        let (_d, db) = test_db();
+        record_chat_usage(&db, None, 1, 2, false, 42).unwrap();
+        let n: i64 = db.0.lock().unwrap()
+            .query_row("SELECT COUNT(*) FROM chat_usage WHERE latency_ms = 42", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(n, 1);
     }
 }

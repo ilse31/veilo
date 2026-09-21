@@ -50,6 +50,7 @@
 
   let page = $state<Page>('dashboard')
   let pendingPrompt      = $state<string | null>(null)
+  let pendingConvId      = $state<number | null>(null)
   let pendingServiceText = $state<string | null>(null)
   let webviewError = $state<string | null>(null)
   let contentAreaEl = $state<HTMLElement | null>(null)
@@ -264,6 +265,7 @@
           apiKey={settings.apiKey}
           onNav={(p) => setPage(p as Page)}
           onPrompt={handlePrompt}
+          onOpenConversation={(id) => { pendingConvId = id; setPage('chat') }}
         />
 
       {:else if page === 'chat'}
@@ -273,6 +275,8 @@
           model={settings.model}
           initialPrompt={pendingPrompt}
           onConsumeInitial={() => pendingPrompt = null}
+          initialConvId={pendingConvId}
+          onConsumeInitialConv={() => pendingConvId = null}
         />
 
       {:else if page === 'settings'}
