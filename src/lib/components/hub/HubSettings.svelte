@@ -10,6 +10,18 @@
   let saved = $state(false)
   let saveError = $state('')
   let showKey = $state(false)
+  let models = $state<string[]>([])
+  let modelsOpen = $state(false)
+  let requestId = 0
+
+  function resetConnection() {
+    requestId++
+    testing = null
+    testMsg = ''
+    models = []
+    modelsOpen = false
+    settings.model = ''
+  }
 
   // ── Live: apply opacity change immediately via CSS (hub-root)
   // (No Tauri API needed — Hub.svelte binds settings.opacity to style)
@@ -36,19 +48,30 @@
 
   // ── Real API test — runs via Tauri Rust command (bypasses browser CORS)
   async function testConnection() {
-    if (!settings.apiUrl) { testing = 'fail'; testMsg = 'URL tidak boleh kosong'; return }
+    if (!settings.apiUrl.trim()) { testing = 'fail'; testMsg = 'URL tidak boleh kosong'; return }
+    const currentRequest = ++requestId
     testing = 'pending'
     testMsg = ''
+    models = []
+    modelsOpen = false
     try {
-      const status = await testAiConnection(settings.apiUrl, settings.apiKey || '')
+      const result = await testAiConnection(settings.apiUrl.trim(), settings.apiKey || '')
+      if (currentRequest !== requestId) return
+      const { status } = result
       if (status >= 200 && status < 300) {
         testing = 'ok'
-        testMsg = `${status} OK`
+        models = result.models
+        if (!models.includes(settings.model)) settings.model = ''
+        modelsOpen = models.length > 0 && !settings.model
+        testMsg = models.length > 0
+          ? `${models.length} model tersedia`
+          : 'Koneksi berhasil, tetapi tidak ada model tersedia.'
       } else {
         testing = 'fail'
         testMsg = `HTTP ${status}`
       }
     } catch (e) {
+      if (currentRequest !== requestId) return
       testing = 'fail'
       testMsg = String(e)
     }
@@ -113,10 +136,10 @@
             <div class="l-desc">Base URL dari API. Path <code>/v1/chat/completions</code> ditambah otomatis.</div>
           </div>
           <div class="field-wrap">
-            <input class="hub-input" bind:value={settings.apiUrl} placeholder="https://api.openai.com" />
+            <input class="hub-input" bind:value={settings.apiUrl} oninput={resetConnection} placeholder="https://api.openai.com" />
             <div style="display:flex;gap:6px;flex-wrap:wrap">
               {#each [['https://api.openai.com','OpenAI'],['http://localhost:11434','Ollama'],['https://api.groq.com/openai','Groq']] as [u, l]}
-                <span class="hub-hint-tag" onclick={() => settings.apiUrl = u} role="button" tabindex="0" onkeydown={() => {}} style="cursor:default">{l}</span>
+                <span class="hub-hint-tag" onclick={() => { settings.apiUrl = u; resetConnection() }} role="button" tabindex="0" onkeydown={() => {}} style="cursor:default">{l}</span>
               {/each}
             </div>
           </div>
@@ -132,6 +155,7 @@
               <input class="hub-input"
                      type={showKey ? 'text' : 'password'}
                      bind:value={settings.apiKey}
+                     oninput={resetConnection}
                      placeholder="sk-..." />
               <button class="hub-btn secondary" onclick={() => showKey = !showKey} aria-label="Toggle key visibility">
                 {#if showKey}
@@ -150,7 +174,23 @@
             <div class="l-desc">Dipakai untuk Obrolan AI & Prompt Cepat di Dasbor.</div>
           </div>
           <div class="field-wrap">
-            <input class="hub-input" bind:value={settings.model} placeholder="gpt-4o-mini" />
+            {#if models.length > 0}
+              <details class="model-picker" bind:open={modelsOpen}>
+                <summary class="hub-input" aria-label="Model default">{settings.model || 'Pilih model'}</summary>
+                <div class="model-options">
+                  {#each models as model}
+                    <button class="hub-input" class:selected={settings.model === model}
+                      aria-pressed={settings.model === model}
+                      onclick={() => { settings.model = model; modelsOpen = false }}>
+                      {model}
+                    </button>
+                  {/each}
+                </div>
+              </details>
+            {:else}
+              <input class="hub-input" aria-label="Model default" value={settings.model}
+                readonly placeholder="Uji koneksi untuk memuat daftar model" />
+            {/if}
           </div>
         </div>
 
@@ -471,3 +511,20 @@
     </div>
   </div>
 </div>
+
+<style>
+  .model-picker { width: 100%; }
+  .model-picker summary { cursor: pointer; }
+  .model-options {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    max-height: 240px;
+    overflow-y: auto;
+    margin-top: 6px;
+  }
+  .model-options button { text-align: left; cursor: pointer; overflow-wrap: anywhere; }
+  .model-options button:hover, .model-options button.selected {
+    background: var(--bg-hover, #eeeeee);
+  }
+</style>

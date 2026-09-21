@@ -36,6 +36,9 @@
   }
 
   let convList    = $state<ConvRow[]>([])
+  let selectedIds = $state<number[]>([])
+  let deleting = $state(false)
+  let deleteError = $state('')
   let activeConvId = $state<number | null>(null)
   let msgs        = $state<Msg[]>([])
   let input       = $state('')
@@ -63,11 +66,14 @@
 
   async function loadConvList() {
     convList = await listConversations()
+    selectedIds = selectedIds.filter(id => convList.some(c => c.id === id))
   }
 
   async function selectConv(id: number) {
+    if (deleting) return
     activeConvId = id
     const rows: MsgRow[] = await getMessages(id)
+    if (activeConvId !== id) return
     msgs = rows.map(r => ({ role: r.role, body: r.body }))
     streamBuf = ''
   }
@@ -80,10 +86,32 @@
     streamBuf    = ''
   }
 
-  async function removeConv(id: number) {
-    await deleteConversation(id)
-    if (activeConvId === id) await newChat()
-    await loadConvList()
+  function toggleSelection(id: number) {
+    selectedIds = selectedIds.includes(id)
+      ? selectedIds.filter(selected => selected !== id)
+      : [...selectedIds, id]
+  }
+
+  async function removeConversations(ids: number[]) {
+    if (deleting || streaming || ids.length === 0) return
+    deleting = true
+    deleteError = ''
+    try {
+      for (const id of ids) {
+        await deleteConversation(id)
+        convList = convList.filter(c => c.id !== id)
+        selectedIds = selectedIds.filter(selected => selected !== id)
+        if (activeConvId === id) {
+          activeConvId = null
+          msgs = []
+          streamBuf = ''
+        }
+      }
+    } catch (e) {
+      deleteError = `Gagal menghapus obrolan: ${e}`
+    } finally {
+      deleting = false
+    }
   }
 
   async function stopStream() {
@@ -95,7 +123,7 @@
 
   async function send(override?: string) {
     const text = (override ?? input).trim()
-    if (!text || streaming) return
+    if (!text || streaming || deleting) return
     input = ''
 
     // Create conversation on first message
@@ -194,6 +222,29 @@
       </button>
     </div>
 
+    {#if convList.length > 0}
+      <div class="bulk-actions">
+        <label>
+          <input type="checkbox" aria-label="Pilih semua obrolan"
+            checked={selectedIds.length === convList.length}
+            indeterminate={selectedIds.length > 0 && selectedIds.length < convList.length}
+            disabled={deleting || streaming}
+            onchange={(e) => selectedIds = e.currentTarget.checked ? convList.map(c => c.id) : []} />
+          Pilih semua
+        </label>
+        <button class="hub-btn secondary" disabled={selectedIds.length === 0 || deleting || streaming}
+          onclick={() => removeConversations([...selectedIds])}>
+          Hapus pilihan ({selectedIds.length})
+        </button>
+        <button class="hub-btn secondary" disabled={deleting || streaming}
+          onclick={() => removeConversations(convList.map(c => c.id))}>
+          {deleting ? 'Menghapus…' : 'Hapus semua'}
+        </button>
+        {#if streaming}<span>Tunggu respons selesai untuk menghapus obrolan.</span>{/if}
+      </div>
+    {/if}
+    {#if deleteError}<p class="delete-error" role="alert">{deleteError}</p>{/if}
+
     <div class="list">
       {#if convList.length === 0}
         <div class="empty-hist">Belum ada obrolan</div>
@@ -201,16 +252,23 @@
         {#each convList as c}
           <div
             class="conv {activeConvId === c.id ? 'active' : ''}"
-            onclick={() => selectConv(c.id)}
+            onclick={(e) => { if (!(e.target as HTMLElement).closest('label')) selectConv(c.id) }}
             role="button" tabindex="0"
-            onkeydown={(e) => e.key === 'Enter' && selectConv(c.id)}
+            onkeydown={(e) => e.target === e.currentTarget && e.key === 'Enter' && selectConv(c.id)}
           >
+            <label class="conv-selection">
+              <input type="checkbox" aria-label={`Pilih obrolan ${c.title}`}
+                checked={selectedIds.includes(c.id)} disabled={deleting || streaming}
+                onchange={() => toggleSelection(c.id)} />
+              <span>Pilih</span>
+            </label>
             <div class="t">{c.title}</div>
             <div class="conv-meta">
               <span class="s">{c.msg_count} pesan</span>
               <button
                 class="del-btn"
-                onclick={(e) => { e.stopPropagation(); removeConv(c.id) }}
+                onclick={(e) => { e.stopPropagation(); removeConversations([c.id]) }}
+                disabled={deleting || streaming}
                 aria-label="Hapus obrolan"
               >×</button>
             </div>
@@ -311,6 +369,11 @@
 </div>
 
 <style>
+  .bulk-actions { display: flex; flex-direction: column; gap: 8px; padding: 10px; font-size: 12px; }
+  .bulk-actions label, .conv-selection { display: flex; align-items: center; gap: 6px; }
+  .conv-selection { font-size: 11px; margin-bottom: 5px; color: var(--text-soft); }
+  .delete-error { padding: 10px; font-size: 12px; color: var(--red); }
+
   .empty-hist {
     padding: 16px 12px;
     font-size: 12px;

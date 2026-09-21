@@ -652,14 +652,20 @@ pub fn copilot_set_custom_instruction(
 
 /// Test AI endpoint connectivity by sending GET /v1/models.
 ///
+#[derive(serde::Serialize)]
+pub struct AiConnectionResult {
+    status: u16,
+    models: Vec<String>,
+}
+
 /// Runs from Rust (not the webview) so it bypasses browser CORS enforcement.
 /// Mirrors the test path used by the settings UI.
 #[tauri::command]
 pub async fn test_ai_connection(
     api_url: String,
     api_key: String,
-) -> Result<u16, String> {
-    let base = api_url.trim_end_matches('/').to_string();
+) -> Result<AiConnectionResult, String> {
+    let base = api_url.trim().trim_end_matches('/').to_string();
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
         .build()
@@ -669,7 +675,21 @@ pub async fn test_ai_connection(
         req = req.bearer_auth(api_key);
     }
     let resp = req.send().await.map_err(|e| e.to_string())?;
-    Ok(resp.status().as_u16())
+    let status = resp.status().as_u16();
+    let mut models = Vec::new();
+    if resp.status().is_success() {
+        #[derive(serde::Deserialize)]
+        struct Model { id: String }
+        #[derive(serde::Deserialize)]
+        struct ModelList { data: Vec<Model> }
+        let body = resp.json::<ModelList>().await
+            .map_err(|_| "Respons daftar model tidak valid".to_string())?;
+        models = body.data.into_iter().map(|model| model.id)
+            .filter(|id| !id.trim().is_empty()).collect();
+        models.sort();
+        models.dedup();
+    }
+    Ok(AiConnectionResult { status, models })
 }
 
 /// Read a markdown file's contents from disk for display in the Markdown Reader page.

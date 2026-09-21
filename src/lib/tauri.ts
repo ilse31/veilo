@@ -168,8 +168,13 @@ export async function resizeServiceWebview(
 
 // ── AI connection test (bypasses browser CORS) ───────────────────────────────
 
-export async function testAiConnection(apiUrl: string, apiKey: string): Promise<number> {
-  return invoke<number>('test_ai_connection', { apiUrl, apiKey })
+export interface AiConnectionResult {
+  status: number
+  models: string[]
+}
+
+export async function testAiConnection(apiUrl: string, apiKey: string): Promise<AiConnectionResult> {
+  return invoke<AiConnectionResult>('test_ai_connection', { apiUrl, apiKey })
 }
 
 // ── Hub chat streaming (bypasses browser CORS) ───────────────────────────────

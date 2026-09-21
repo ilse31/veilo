@@ -10,7 +10,7 @@ export const settings = $state({
   // AI API
   apiUrl:  'https://api.openai.com',
   apiKey:  '',
-  model:   'gpt-4o-mini',
+  model:   '',
   // Appearance
   opacity:          90,
   alwaysOnTop:      true,
