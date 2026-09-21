@@ -8,9 +8,10 @@
     platform?: 'mac' | 'win'
     title?: string
     stealth?: boolean
+    contentProtected?: boolean
     copilotElapsedS?: number | null
   }
-  let { platform = 'mac', title = '', stealth = false, copilotElapsedS = null }: Props = $props()
+  let { platform = 'mac', title = '', stealth = false, contentProtected = true, copilotElapsedS = null }: Props = $props()
 
   const win = getCurrentWindow()
 
@@ -69,6 +70,18 @@
   {:else}
     <div style="width:1px"></div>
   {/if}
+
+  <!-- Always-visible protection status — the core trust signal of the app,
+       shown regardless of the optional "stealth badge" cosmetic toggle. -->
+  <div
+    class="protect-badge {contentProtected ? 'on' : 'off'}"
+    title={contentProtected
+      ? 'Terlindungi — jendela ini tersembunyi dari screen capture (Zoom, Teams, OBS, screenshot OS)'
+      : 'Peringatan — proteksi nonaktif, jendela ini TERLIHAT saat screen sharing atau screenshot'}
+  >
+    <span class="pulse"></span>
+    {contentProtected ? 'Terlindungi' : 'Terlihat'}
+  </div>
 
   {#if stealth}
     <div class="stealth-badge" title="Tersembunyi dari screenshot & share screen">

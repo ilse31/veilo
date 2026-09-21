@@ -5,6 +5,15 @@
   import { setServiceUrl } from './webviewManager'
   import HotkeyRecorder from '$lib/components/HotkeyRecorder.svelte'
 
+  type Tab = 'connection' | 'privacy' | 'shortcuts' | 'copilot'
+  const tabs: { id: Tab; label: string }[] = [
+    { id: 'connection', label: 'Koneksi' },
+    { id: 'privacy',    label: 'Privasi & Tampilan' },
+    { id: 'shortcuts',  label: 'Pintasan' },
+    { id: 'copilot',    label: 'Copilot' },
+  ]
+  let activeTab = $state<Tab>('connection')
+
   let testing = $state<null | 'pending' | 'ok' | 'fail'>(null)
   let testMsg = $state('')
   let saved = $state(false)
@@ -119,10 +128,24 @@
 
 <div class="hub-page-scroll">
   <div class="hub-page-pad">
-    <h2 class="hub-greeting" style="font-size:19px;margin-bottom:24px">Pengaturan</h2>
+    <h2 class="hub-greeting" style="font-size:19px;margin-bottom:16px">Pengaturan</h2>
+
+    <div class="hub-s-tabs" role="tablist">
+      {#each tabs as t}
+        <button
+          class="hub-s-tab {activeTab === t.id ? 'active' : ''}"
+          role="tab"
+          aria-selected={activeTab === t.id}
+          onclick={() => activeTab = t.id}
+        >
+          {t.label}
+        </button>
+      {/each}
+    </div>
 
     <div class="hub-settings-grid">
 
+    {#if activeTab === 'connection'}
       <!-- ── API Connection -->
       <div class="hub-s-section">
         <div class="head">
@@ -148,7 +171,7 @@
         <div class="hub-s-row">
           <div class="label-wrap">
             <div class="l-name">API Key</div>
-            <div class="l-desc">Disimpan di memori sesi. Tidak dikirim ke server lain.</div>
+            <div class="l-desc">Disimpan secara lokal di perangkat (SQLite). Tidak pernah dikirim ke server lain selain endpoint AI di atas.</div>
           </div>
           <div class="field-wrap">
             <div class="hub-key-input">
@@ -235,7 +258,9 @@
           </div>
         {/each}
       </div>
+    {/if}
 
+    {#if activeTab === 'privacy'}
       <!-- ── Privacy & Display -->
       <div class="hub-s-section">
         <div class="head">
@@ -340,7 +365,9 @@
           </div>
         </div>
       </div>
+    {/if}
 
+    {#if activeTab === 'shortcuts'}
       <!-- ── Keyboard Shortcuts -->
       <div class="hub-s-section">
         <div class="head">
@@ -388,7 +415,9 @@
           </div>
         </div>
       </div>
+    {/if}
 
+    {#if activeTab === 'copilot'}
       <!-- ── Copilot -->
       <div class="hub-s-section">
         <div class="head">
@@ -493,9 +522,10 @@
           </div>
         </div>
       </div>
+    {/if}
 
-      <!-- ── Save -->
-      <div style="display:flex;gap:10px;align-items:center">
+      <!-- ── Save (always visible, independent of active tab) -->
+      <div class="hub-s-save" style="display:flex;gap:10px;align-items:center">
         <button class="hub-btn accent" onclick={handleSave}>Simpan pengaturan</button>
         {#if saved}
           <span style="font-size:12.5px;color:var(--green);font-weight:500">
@@ -513,6 +543,29 @@
 </div>
 
 <style>
+  .hub-s-tabs {
+    display: flex; gap: 4px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 20px;
+  }
+  .hub-s-tab {
+    padding: 8px 12px;
+    font-size: 13px; font-weight: 500;
+    color: var(--text-soft);
+    border: 0; background: transparent;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    cursor: pointer;
+    transition: color .12s, border-color .12s;
+  }
+  .hub-s-tab:hover { color: var(--text); }
+  .hub-s-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+  .hub-s-save {
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+  }
+
   .model-picker { width: 100%; }
   .model-picker summary { cursor: pointer; }
   .model-options {

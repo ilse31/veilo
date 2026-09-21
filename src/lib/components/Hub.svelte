@@ -232,6 +232,7 @@
       {platform}
       title={pageTitles[page]}
       stealth={settings.stealth}
+      contentProtected={settings.contentProtected}
       copilotElapsedS={copilotActiveStatus
         ? Math.floor(Date.now()/1000 - copilotActiveStatus.started_at)
         : null}
