@@ -75,6 +75,6 @@ jobs:
             ### Install (macOS)
             Open the `.dmg`, drag noscreen to Applications.
             First launch: right-click → Open to bypass Gatekeeper (app is unsigned).
-          releaseDraft: true
+          releaseDraft: false
           prerelease: false
           args: --target ${{ matrix.target }}
