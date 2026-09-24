@@ -24,7 +24,7 @@ The protection is enforced at the OS level (Windows `WDA_EXCLUDEFROMCAPTURE`, ma
 | Platform                | Status            | Notes                                                                                |
 | ----------------------- | ----------------- | ------------------------------------------------------------------------------------ |
 | Windows 10 (2004+) / 11 | ✅ Primary target | Full feature set                                                                     |
-| macOS 12+               | ⚠️ Partial        | Core protection works; Windows-only features (ghost typing, WASAPI loopback) stubbed |
+| macOS 12+               | ⚠️ Partial        | Core protection works. Ghost typing and Windows Speech Recognition are still stubbed. Copilot's system-audio loopback uses the Core Audio Process Tap API and needs **macOS 14.2+ (Sonoma)**; on older macOS it fails with a clear error instead of crashing the app. |
 | Linux                   | ❌ Not planned    | Wayland/X11 do not expose equivalent protection APIs                                 |
 
 ## Features

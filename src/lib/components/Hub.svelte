@@ -283,7 +283,12 @@
         <HubSettings />
 
       {:else if page === 'copilot'}
-        <CopilotPanel onStartClick={() => showStartModal = true} />
+        <CopilotPanel
+          onStartClick={() => showStartModal = true}
+          apiUrl={settings.apiUrl}
+          apiKey={settings.apiKey}
+          model={settings.model}
+        />
 
       {:else if page === 'markdown'}
         <MarkdownReader />

@@ -1,4 +1,4 @@
-use rusqlite::{params, Connection, Result};
+use rusqlite::{params, Connection, OptionalExtension, Result};
 use serde::Serialize;
 use std::path::Path;
 use std::sync::Mutex;
@@ -68,7 +68,16 @@ pub fn open(app_data_dir: &Path) -> Result<Db> {
              response_format TEXT    NOT NULL,
              created_at      INTEGER NOT NULL DEFAULT (unixepoch())
          );
-         CREATE INDEX IF NOT EXISTS idx_suggestions_session ON copilot_suggestions(session_id);",
+         CREATE INDEX IF NOT EXISTS idx_suggestions_session ON copilot_suggestions(session_id);
+
+         CREATE TABLE IF NOT EXISTS copilot_presets (
+             id                 TEXT PRIMARY KEY,
+             name               TEXT NOT NULL,
+             system_prompt      TEXT NOT NULL,
+             response_format    TEXT NOT NULL,
+             default_context_s  INTEGER NOT NULL,
+             created_at         INTEGER NOT NULL DEFAULT (unixepoch())
+         );",
     )?;
     // chat_usage predates `tokens_estimated` in dev builds; add it to older tables.
     let has_estimated = conn
@@ -77,6 +86,16 @@ pub fn open(app_data_dir: &Path) -> Result<Db> {
     if !has_estimated {
         conn.execute(
             "ALTER TABLE chat_usage ADD COLUMN tokens_estimated INTEGER NOT NULL DEFAULT 0",
+            [],
+        )?;
+    }
+    // copilot_sessions predates `summary` in dev builds; add it to older tables.
+    let has_summary = conn
+        .prepare("SELECT 1 FROM pragma_table_info('copilot_sessions') WHERE name = 'summary'")?
+        .exists([])?;
+    if !has_summary {
+        conn.execute(
+            "ALTER TABLE copilot_sessions ADD COLUMN summary TEXT",
             [],
         )?;
     }
@@ -270,6 +289,7 @@ pub struct CopilotSessionRow {
     pub ended_at:         Option<i64>,
     pub context_window_s: i64,
     pub suggestion_count: i64,
+    pub summary:          Option<String>,
 }
 
 pub fn create_copilot_session(
@@ -348,7 +368,7 @@ pub fn list_copilot_sessions(db: &Db) -> Result<Vec<CopilotSessionRow>> {
     let conn = db.0.lock().unwrap();
     let mut stmt = conn.prepare(
         "SELECT s.id, s.preset_id, s.started_at, s.ended_at, s.context_window_s,
-                COUNT(g.id) AS sug_count
+                COUNT(g.id) AS sug_count, s.summary
          FROM copilot_sessions s
          LEFT JOIN copilot_suggestions g ON g.session_id = s.id
          GROUP BY s.id
@@ -364,9 +384,101 @@ pub fn list_copilot_sessions(db: &Db) -> Result<Vec<CopilotSessionRow>> {
             ended_at:         r.get(3)?,
             context_window_s: r.get(4)?,
             suggestion_count: r.get(5)?,
+            summary:          r.get(6)?,
         })
     })?;
     rows.collect()
+}
+
+/// Full transcript text for a session, chunks joined in chronological order.
+pub fn get_copilot_transcript_text(db: &Db, session_id: i64) -> Result<String> {
+    let conn = db.0.lock().unwrap();
+    let mut stmt = conn.prepare(
+        "SELECT text FROM copilot_transcripts WHERE session_id = ?1 ORDER BY start_ms ASC",
+    )?;
+    let rows = stmt.query_map(params![session_id], |r| r.get::<_, String>(0))?;
+    let mut parts = Vec::new();
+    for row in rows {
+        parts.push(row?);
+    }
+    Ok(parts.join(" "))
+}
+
+pub fn save_copilot_summary(db: &Db, session_id: i64, summary: &str) -> Result<()> {
+    let conn = db.0.lock().unwrap();
+    conn.execute(
+        "UPDATE copilot_sessions SET summary = ?2 WHERE id = ?1",
+        params![session_id, summary],
+    )?;
+    Ok(())
+}
+
+// ── Copilot presets (user-defined, in addition to Rust builtins) ──────────────
+
+#[derive(Serialize)]
+pub struct CustomPresetRow {
+    pub id:                String,
+    pub name:               String,
+    pub system_prompt:      String,
+    pub response_format:    String,
+    pub default_context_s:  i64,
+}
+
+pub fn create_copilot_preset(
+    db: &Db,
+    id: &str,
+    name: &str,
+    system_prompt: &str,
+    response_format: &str,
+    default_context_s: i64,
+) -> Result<()> {
+    let conn = db.0.lock().unwrap();
+    conn.execute(
+        "INSERT INTO copilot_presets(id, name, system_prompt, response_format, default_context_s)
+         VALUES(?1, ?2, ?3, ?4, ?5)",
+        params![id, name, system_prompt, response_format, default_context_s],
+    )?;
+    Ok(())
+}
+
+pub fn delete_copilot_preset(db: &Db, id: &str) -> Result<()> {
+    let conn = db.0.lock().unwrap();
+    conn.execute("DELETE FROM copilot_presets WHERE id = ?1", params![id])?;
+    Ok(())
+}
+
+pub fn list_copilot_presets(db: &Db) -> Result<Vec<CustomPresetRow>> {
+    let conn = db.0.lock().unwrap();
+    let mut stmt = conn.prepare(
+        "SELECT id, name, system_prompt, response_format, default_context_s
+         FROM copilot_presets ORDER BY created_at ASC",
+    )?;
+    let rows = stmt.query_map([], |r| {
+        Ok(CustomPresetRow {
+            id:                 r.get(0)?,
+            name:               r.get(1)?,
+            system_prompt:      r.get(2)?,
+            response_format:    r.get(3)?,
+            default_context_s:  r.get(4)?,
+        })
+    })?;
+    rows.collect()
+}
+
+pub fn find_copilot_preset(db: &Db, id: &str) -> Result<Option<CustomPresetRow>> {
+    let conn = db.0.lock().unwrap();
+    conn.query_row(
+        "SELECT id, name, system_prompt, response_format, default_context_s
+         FROM copilot_presets WHERE id = ?1",
+        params![id],
+        |r| Ok(CustomPresetRow {
+            id:                 r.get(0)?,
+            name:               r.get(1)?,
+            system_prompt:      r.get(2)?,
+            response_format:    r.get(3)?,
+            default_context_s:  r.get(4)?,
+        }),
+    ).optional()
 }
 
 #[cfg(test)]
@@ -472,6 +584,58 @@ mod tests {
         let s: i64 = conn.query_row("SELECT COUNT(*) FROM copilot_suggestions WHERE session_id = ?1", [sid], |r| r.get(0)).unwrap();
         assert_eq!(t, 0);
         assert_eq!(s, 0);
+    }
+
+    #[test]
+    fn transcript_text_joins_chunks_in_chronological_order() {
+        let dir = tempdir().unwrap();
+        let db = open(dir.path()).unwrap();
+        let sid = create_copilot_session(&db, "generic", 90, true).unwrap();
+        insert_copilot_transcript(&db, sid, 2000, 3000, "world").unwrap();
+        insert_copilot_transcript(&db, sid, 0, 1000, "hello").unwrap();
+        assert_eq!(get_copilot_transcript_text(&db, sid).unwrap(), "hello world");
+    }
+
+    #[test]
+    fn transcript_text_empty_when_nothing_saved() {
+        let dir = tempdir().unwrap();
+        let db = open(dir.path()).unwrap();
+        let sid = create_copilot_session(&db, "generic", 90, false).unwrap();
+        assert_eq!(get_copilot_transcript_text(&db, sid).unwrap(), "");
+    }
+
+    #[test]
+    fn summary_roundtrips_through_list_copilot_sessions() {
+        let dir = tempdir().unwrap();
+        let db = open(dir.path()).unwrap();
+        let sid = create_copilot_session(&db, "generic", 90, true).unwrap();
+        save_copilot_summary(&db, sid, "Ringkasan sesi").unwrap();
+        let rows = list_copilot_sessions(&db).unwrap();
+        let row = rows.iter().find(|r| r.id == sid).unwrap();
+        assert_eq!(row.summary.as_deref(), Some("Ringkasan sesi"));
+    }
+
+    #[test]
+    fn custom_preset_crud_roundtrips() {
+        let dir = tempdir().unwrap();
+        let db = open(dir.path()).unwrap();
+        create_copilot_preset(&db, "custom-1", "My Preset", "Be helpful.", "Bullets", 90).unwrap();
+
+        let found = find_copilot_preset(&db, "custom-1").unwrap().unwrap();
+        assert_eq!(found.name, "My Preset");
+
+        let all = list_copilot_presets(&db).unwrap();
+        assert_eq!(all.len(), 1);
+
+        delete_copilot_preset(&db, "custom-1").unwrap();
+        assert!(find_copilot_preset(&db, "custom-1").unwrap().is_none());
+    }
+
+    #[test]
+    fn find_copilot_preset_returns_none_for_unknown_id() {
+        let dir = tempdir().unwrap();
+        let db = open(dir.path()).unwrap();
+        assert!(find_copilot_preset(&db, "nonexistent").unwrap().is_none());
     }
 
     #[test]

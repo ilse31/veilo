@@ -35,6 +35,19 @@ futures-util = "0.3"
 uuid = { version = "1", features = ["v4"] }
 chrono = "0.4"
 
+[target.'cfg(target_os = "macos")'.dependencies]
+# Core Audio Process Tap (system-audio loopback without a screen-recording
+# prompt or a third-party virtual device). Requires macOS 14.2+ at runtime.
+#
+# TEMPORARY: points at a local vendored+patched copy (vendor/cidre) while the
+# public fork (github.com/ilse31/cidre) hasn't been created yet — repo
+# creation needs the user's explicit go-ahead. Once that fork exists, switch
+# this to `{ git = "https://github.com/ilse31/cidre", rev = "<sha>", ... }`
+# and delete vendor/cidre (see its tap_description.rs for why it's patched:
+# upstream 0.29.0's TapDesc::with_* helpers don't compile under a narrow
+# feature set because TapDesc is a weakly-linked, version-gated class).
+cidre = { path = "vendor/cidre", default-features = false, features = ["core_audio", "dispatch"] }
+
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.58", features = [
   "Win32_UI_WindowsAndMessaging",

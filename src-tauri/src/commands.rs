@@ -478,8 +478,54 @@ use crate::copilot::session::{ActiveSession, CopilotState, SessionStatus};
 use crate::copilot::stt::{whisper_cloud::WhisperCloudStt, SttBackend};
 
 #[tauri::command]
-pub fn copilot_get_presets() -> Vec<Preset> {
-    builtin_presets()
+pub fn copilot_get_presets(db: tauri::State<crate::db::Db>) -> Result<Vec<Preset>, String> {
+    let mut presets = builtin_presets();
+    let custom = crate::db::list_copilot_presets(&db).map_err(|e| e.to_string())?;
+    presets.extend(custom.into_iter().map(Preset::from));
+    Ok(presets)
+}
+
+/// Custom presets only (used by the preset-management UI, which needs to
+/// distinguish "built-in, can't delete" from "custom, can delete").
+#[tauri::command]
+pub fn copilot_list_custom_presets(
+    db: tauri::State<crate::db::Db>,
+) -> Result<Vec<crate::db::CustomPresetRow>, String> {
+    crate::db::list_copilot_presets(&db).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn copilot_create_preset(
+    db: tauri::State<crate::db::Db>,
+    name: String,
+    system_prompt: String,
+    response_format: String,
+    default_context_s: i64,
+) -> Result<String, String> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err("Nama preset tidak boleh kosong".into());
+    }
+    if system_prompt.trim().is_empty() {
+        return Err("System prompt tidak boleh kosong".into());
+    }
+    // Namespaced so a custom preset's id can never collide with a builtin's.
+    let id = format!("custom-{}", uuid::Uuid::new_v4());
+    crate::db::create_copilot_preset(
+        &db, &id, name, system_prompt.trim(), &response_format, default_context_s,
+    ).map_err(|e| e.to_string())?;
+    Ok(id)
+}
+
+#[tauri::command]
+pub fn copilot_delete_preset(
+    db: tauri::State<crate::db::Db>,
+    id: String,
+) -> Result<(), String> {
+    if !id.starts_with("custom-") {
+        return Err("Preset bawaan tidak bisa dihapus".into());
+    }
+    crate::db::delete_copilot_preset(&db, &id).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -506,7 +552,13 @@ pub async fn copilot_start_session(
             return Err("Session already running".into());
         }
     }
-    let preset = find_preset(&preset_id).ok_or_else(|| format!("unknown preset {preset_id}"))?;
+    let preset = match find_preset(&preset_id) {
+        Some(p) => p,
+        None => crate::db::find_copilot_preset(&db, &preset_id)
+            .map_err(|e| e.to_string())?
+            .map(Preset::from)
+            .ok_or_else(|| format!("unknown preset {preset_id}"))?,
+    };
     let app_cfg = crate::config::read_config(
         &app.path().app_data_dir().map_err(|e| e.to_string())?,
     );
@@ -654,6 +706,61 @@ pub fn copilot_set_custom_instruction(
         session.orchestrator.force_regenerate();
     }
     Ok(())
+}
+
+/// Summarize a finished Copilot session's saved transcript via the
+/// OpenAI-compatible chat endpoint (non-streaming — this is a one-off call,
+/// not the live suggestion loop). Requires the session to have been started
+/// with "save transcript" on; otherwise there's nothing to summarize.
+#[tauri::command]
+pub async fn copilot_summarize_session(
+    db: tauri::State<'_, crate::db::Db>,
+    session_id: i64,
+    api_url: String,
+    api_key: String,
+    model: String,
+) -> Result<String, String> {
+    let transcript = crate::db::get_copilot_transcript_text(&db, session_id)
+        .map_err(|e| e.to_string())?;
+    if transcript.trim().is_empty() {
+        return Err("Tidak ada transkrip tersimpan untuk sesi ini (sesi dimulai tanpa \"simpan transkrip\", atau belum ada percakapan yang tertangkap)".into());
+    }
+
+    let base = api_url.trim().trim_end_matches('/').to_string();
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(60))
+        .build()
+        .map_err(|e| e.to_string())?;
+    let body = serde_json::json!({
+        "model": model,
+        "messages": [
+            {
+                "role": "system",
+                "content": "Ringkas transkrip percakapan berikut dalam Bahasa Indonesia: \
+                    3-6 poin utama yang dibahas, dan jika ada, keputusan atau langkah \
+                    selanjutnya. Singkat dan langsung ke inti, jangan mengulang transkrip.",
+            },
+            { "role": "user", "content": transcript },
+        ],
+        "stream": false,
+    });
+    let mut req = client.post(format!("{base}/v1/chat/completions")).json(&body);
+    if !api_key.is_empty() {
+        req = req.bearer_auth(api_key);
+    }
+    let resp = req.send().await.map_err(|e| e.to_string())?;
+    if !resp.status().is_success() {
+        return Err(format!("HTTP {}", resp.status()));
+    }
+    let json: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+    let summary = json["choices"][0]["message"]["content"]
+        .as_str()
+        .ok_or_else(|| "Respons AI tidak berisi ringkasan".to_string())?
+        .trim()
+        .to_string();
+
+    crate::db::save_copilot_summary(&db, session_id, &summary).map_err(|e| e.to_string())?;
+    Ok(summary)
 }
 
 /// Test AI endpoint connectivity by sending GET /v1/models.

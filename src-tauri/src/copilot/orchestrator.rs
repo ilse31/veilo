@@ -72,6 +72,7 @@ impl Orchestrator {
     pub fn start(self: Arc<Self>, app: AppHandle) -> (tokio::task::JoinHandle<()>, tauri::EventId) {
         let me = self.clone();
         let app_clone = app.clone();
+        let app_for_listener = app.clone();
 
         let listener_id = app.listen(
             "copilot-transcript-final",
@@ -80,6 +81,15 @@ impl Orchestrator {
                 move |event| {
                     if let Ok(chunk) = serde_json::from_str::<TranscriptChunk>(event.payload()) {
                         if chunk.session_id == me.config.session_id {
+                            if me.config.save_transcript {
+                                if let Some(db) = app_for_listener.try_state::<crate::db::Db>() {
+                                    if let Err(e) = crate::db::insert_copilot_transcript(
+                                        &db, chunk.session_id, chunk.start_ms, chunk.end_ms, &chunk.text,
+                                    ) {
+                                        eprintln!("[orchestrator] failed to persist transcript chunk: {e}");
+                                    }
+                                }
+                            }
                             if let Ok(mut buf_guard) = me.buffer.lock() {
                                 buf_guard.append(chunk);
                             }

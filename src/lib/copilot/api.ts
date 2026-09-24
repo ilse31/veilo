@@ -23,6 +23,15 @@ export interface CopilotSessionRow {
   ended_at:         number | null
   context_window_s: number
   suggestion_count: number
+  summary:          string | null
+}
+
+export interface CustomPresetRow {
+  id:                 string
+  name:               string
+  system_prompt:      string
+  response_format:    ResponseFormat
+  default_context_s:  number
 }
 
 export async function copilotGetPresets(): Promise<Preset[]> {
@@ -67,4 +76,40 @@ export async function copilotForceRegenerate(): Promise<void> {
 
 export async function copilotListSessions(): Promise<CopilotSessionRow[]> {
   return invoke<CopilotSessionRow[]>('copilot_list_sessions')
+}
+
+export async function copilotSummarizeSession(args: {
+  sessionId: number
+  apiUrl:    string
+  apiKey:    string
+  model:     string
+}): Promise<string> {
+  return invoke<string>('copilot_summarize_session', {
+    sessionId: args.sessionId,
+    apiUrl:    args.apiUrl,
+    apiKey:    args.apiKey,
+    model:     args.model,
+  })
+}
+
+export async function copilotListCustomPresets(): Promise<CustomPresetRow[]> {
+  return invoke<CustomPresetRow[]>('copilot_list_custom_presets')
+}
+
+export async function copilotCreatePreset(args: {
+  name:             string
+  systemPrompt:     string
+  responseFormat:   ResponseFormat
+  defaultContextS:  number
+}): Promise<string> {
+  return invoke<string>('copilot_create_preset', {
+    name:             args.name,
+    systemPrompt:     args.systemPrompt,
+    responseFormat:   args.responseFormat,
+    defaultContextS:  args.defaultContextS,
+  })
+}
+
+export async function copilotDeletePreset(id: string): Promise<void> {
+  return invoke('copilot_delete_preset', { id })
 }

@@ -4,6 +4,10 @@
   import { settings } from '$lib/stores/settings.svelte'
   import { setServiceUrl } from './webviewManager'
   import HotkeyRecorder from '$lib/components/HotkeyRecorder.svelte'
+  import {
+    copilotListCustomPresets, copilotCreatePreset, copilotDeletePreset,
+    type CustomPresetRow, type ResponseFormat,
+  } from '$lib/copilot/api'
 
   type Tab = 'connection' | 'privacy' | 'shortcuts' | 'copilot'
   const tabs: { id: Tab; label: string }[] = [
@@ -124,6 +128,58 @@
     }
   }
 
+  // ── Custom Copilot presets ──────────────────────────────────────────────
+  let customPresets = $state<CustomPresetRow[]>([])
+  let presetName = $state('')
+  let presetPrompt = $state('')
+  let presetFormat = $state<ResponseFormat>('Bullets')
+  let presetContextS = $state(90)
+  let presetSaving = $state(false)
+  let presetError = $state('')
+
+  async function loadCustomPresets() {
+    try {
+      customPresets = await copilotListCustomPresets()
+    } catch (e) {
+      console.error('[settings] failed to load custom presets', e)
+    }
+  }
+
+  $effect(() => {
+    if (activeTab === 'copilot') loadCustomPresets()
+  })
+
+  async function addPreset() {
+    if (!presetName.trim() || !presetPrompt.trim()) return
+    presetSaving = true
+    presetError = ''
+    try {
+      await copilotCreatePreset({
+        name: presetName.trim(),
+        systemPrompt: presetPrompt.trim(),
+        responseFormat: presetFormat,
+        defaultContextS: presetContextS,
+      })
+      presetName = ''
+      presetPrompt = ''
+      presetFormat = 'Bullets'
+      presetContextS = 90
+      await loadCustomPresets()
+    } catch (e) {
+      presetError = String(e)
+    } finally {
+      presetSaving = false
+    }
+  }
+
+  async function removePreset(id: string) {
+    try {
+      await copilotDeletePreset(id)
+      await loadCustomPresets()
+    } catch (e) {
+      presetError = String(e)
+    }
+  }
 </script>
 
 <div class="hub-page-scroll">
@@ -522,6 +578,86 @@
           </div>
         </div>
       </div>
+
+      <!-- ── Custom presets -->
+      <div class="hub-s-section">
+        <div class="head">
+          <div class="t">Preset Kustom</div>
+          <div class="d">Buat preset Copilot sendiri untuk skenario yang tidak tercakup preset bawaan.</div>
+        </div>
+
+        {#if customPresets.length > 0}
+          <div class="hub-s-row">
+            <div class="label-wrap"><div class="l-name">Preset tersimpan</div></div>
+            <div class="field-wrap">
+              <div class="preset-list">
+                {#each customPresets as p (p.id)}
+                  <div class="preset-item">
+                    <div class="preset-item-info">
+                      <span class="preset-item-name">{p.name}</span>
+                      <span class="preset-item-meta">{p.response_format} · {p.default_context_s}s</span>
+                    </div>
+                    <button class="hub-btn secondary sm" onclick={() => removePreset(p.id)}>Hapus</button>
+                  </div>
+                {/each}
+              </div>
+            </div>
+          </div>
+        {/if}
+
+        <div class="hub-s-row">
+          <div class="label-wrap">
+            <div class="l-name">Nama preset</div>
+          </div>
+          <div class="field-wrap">
+            <input class="hub-input" bind:value={presetName} placeholder="mis. Negosiasi Kontrak" />
+          </div>
+        </div>
+
+        <div class="hub-s-row">
+          <div class="label-wrap">
+            <div class="l-name">System prompt</div>
+            <div class="l-desc">Instruksi ke AI tentang cara merespons transkrip live.</div>
+          </div>
+          <div class="field-wrap">
+            <textarea class="hub-input" style="min-height:80px;resize:vertical;font-family:inherit"
+              bind:value={presetPrompt} placeholder="You are a live assistant for..."></textarea>
+          </div>
+        </div>
+
+        <div class="hub-s-row">
+          <div class="label-wrap"><div class="l-name">Format respons</div></div>
+          <div class="field-wrap">
+            <select class="hub-input" bind:value={presetFormat}>
+              <option value="Bullets">Bullets</option>
+              <option value="Headline">Headline</option>
+              <option value="Code">Code</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="hub-s-row">
+          <div class="label-wrap"><div class="l-name">Context window default</div></div>
+          <div class="field-wrap">
+            <div class="hub-range-row">
+              <input type="range" min="30" max="300" step="10" bind:value={presetContextS} />
+              <span class="v-val">{presetContextS}s</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="hub-s-row">
+          <div class="label-wrap"></div>
+          <div class="field-wrap" style="flex-direction:row;align-items:center;gap:10px">
+            <button class="hub-btn" onclick={addPreset} disabled={presetSaving || !presetName.trim() || !presetPrompt.trim()}>
+              {presetSaving ? 'Menyimpan…' : 'Tambah preset'}
+            </button>
+            {#if presetError}
+              <span style="font-size:12px;color:var(--red)">{presetError}</span>
+            {/if}
+          </div>
+        </div>
+      </div>
     {/if}
 
       <!-- ── Save (always visible, independent of active tab) -->
@@ -543,6 +679,16 @@
 </div>
 
 <style>
+  .preset-list { display: flex; flex-direction: column; gap: 6px; }
+  .preset-item {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px;
+  }
+  .preset-item-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .preset-item-name { font-size: 12.5px; font-weight: 500; }
+  .preset-item-meta { font-size: 11px; color: var(--text-soft); }
+  .hub-btn.sm { padding: 4px 10px; font-size: 11.5px; flex-shrink: 0; }
+
   .hub-s-tabs {
     display: flex; gap: 4px;
     border-bottom: 1px solid var(--border);

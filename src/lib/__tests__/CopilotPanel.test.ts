@@ -14,12 +14,14 @@ vi.mock('@tauri-apps/api/event', () => ({
 
 import CopilotPanel from '$lib/components/copilot/CopilotPanel.svelte'
 
+const aiProps = { apiUrl: 'https://api.openai.com', apiKey: '', model: 'gpt-4o-mini' }
+
 describe('CopilotPanel', () => {
   beforeEach(() => vi.clearAllMocks())
   afterEach(() => cleanup())
 
   it('renders "Mulai Sesi" button when idle', async () => {
-    render(CopilotPanel, { props: { onStartClick: () => {} } })
+    render(CopilotPanel, { props: { onStartClick: () => {}, ...aiProps } })
     await waitFor(() => {
       expect(screen.getByText(/Mulai Sesi/i)).toBeTruthy()
     })
@@ -27,7 +29,7 @@ describe('CopilotPanel', () => {
 
   it('calls onStartClick when start button clicked', async () => {
     const onStartClick = vi.fn()
-    render(CopilotPanel, { props: { onStartClick } })
+    render(CopilotPanel, { props: { onStartClick, ...aiProps } })
     const btn = await waitFor(() => screen.getByText(/Mulai Sesi/i))
     await fireEvent.click(btn)
     expect(onStartClick).toHaveBeenCalled()
