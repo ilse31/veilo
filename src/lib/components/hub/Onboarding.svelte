@@ -30,7 +30,7 @@
   <div class="ob-card hub-card">
     <div class="ob-logo">N</div>
     <h2 class="ob-title">Halo! Siapa namamu?</h2>
-    <p class="ob-sub">Kami akan menyapamu setiap kali membuka noscreen.</p>
+    <p class="ob-sub">Kami akan menyapamu setiap kali membuka Veilo.</p>
 
     <form class="ob-form" onsubmit={handleSubmit}>
       <input

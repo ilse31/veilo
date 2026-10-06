@@ -1,5 +1,5 @@
 //! Ghost typing: low-level keyboard hook that intercepts keystrokes globally
-//! so the user can "type" into noscreen without the browser ever losing focus.
+//! so the user can "type" into Veilo without the browser ever losing focus.
 //!
 //! Activation flow:
 //!   1. Caller sets WS_EX_NOACTIVATE on the hub window (clicking it won't steal focus)

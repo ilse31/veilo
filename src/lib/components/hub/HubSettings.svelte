@@ -409,7 +409,7 @@
         <div class="hub-s-row">
           <div class="label-wrap">
             <div class="l-name">Buka otomatis saat boot</div>
-            <div class="l-desc">Jalankan noscreen secara otomatis ketika komputer menyala.</div>
+            <div class="l-desc">Jalankan Veilo secara otomatis ketika komputer menyala.</div>
           </div>
           <div class="field-wrap" style="flex-direction:row;align-items:center;gap:10px">
             <button class="hub-switch" data-on={String(settings.autostart)}

@@ -1,23 +1,39 @@
-# noscreen
+# Veilo
 
-> A desktop privacy overlay that stays visible to you but invisible to screen sharing and recording.
+> Your quiet AI companion.
 
-**noscreen** lets you keep sensitive information, productivity tools, and AI assistants visible on your screen while remaining completely hidden from Zoom, Microsoft Teams, Google Meet, OBS Studio, Discord, Loom, and OS-level screenshot tools.
+A desktop privacy overlay that stays visible to you but invisible to screen sharing and recording.
+
+**Veilo** lets you keep sensitive information, productivity tools, and AI assistants visible on your screen while remaining completely hidden from Zoom, Microsoft Teams, Google Meet, OBS Studio, Discord, Loom, and OS-level screenshot tools.
 
 Built with Rust + Tauri 2 + Svelte 5 + Tailwind CSS.
 
 ---
 
-## Why noscreen?
+## Why Veilo?
 
-When you share your screen, everything visible gets captured — including notes, cheat sheets, password managers, AI chats, and any other tool you might want to reference privately. noscreen creates protected windows that the operating system explicitly excludes from screen capture, so you can:
+When you share your screen, everything visible gets captured — including notes, cheat sheets, password managers, AI chats, and any other tool you might want to reference privately. Veilo creates protected windows that the operating system explicitly excludes from screen capture, so you can:
 
 - Reference notes during a live presentation without your audience seeing them
 - Use an AI assistant during interviews, meetings, or pair-programming
 - Keep technical documentation open while screen sharing
 - Display personal information without it leaking to recordings
 
-The protection is enforced at the OS level (Windows `WDA_EXCLUDEFROMCAPTURE`, macOS `NSWindowSharingNone`), not via post-processing or window cropping. Captured frames simply do not contain noscreen's pixels.
+The protection is enforced at the OS level (Windows `WDA_EXCLUDEFROMCAPTURE`, macOS `NSWindowSharingNone`), not via post-processing or window cropping. Captured frames simply do not contain Veilo's pixels.
+
+## Branding and upgrade compatibility
+
+Veilo is the new name for noscreen, with application identifier `com.veilo.app`. On first launch, before opening its database, Veilo imports `config.json` and `profile.db` from the sibling `com.noscreen.app` data folder. This includes saved AI settings/API keys, profile preferences, chat history, usage statistics, and Copilot data.
+
+- Existing Veilo files are never overwritten; original noscreen files are retained.
+- SQLite backup includes committed WAL data. Files are staged and published individually; a failed attempt can resume on the next launch. Migration errors stop startup before an empty database can be created.
+- A `.noscreen-migration-v1` marker records completion, including fresh installs, to prevent importing stale data again.
+- Webview cookies, login sessions, and caches are not migrated. Sign in to embedded services again if needed.
+- Before switching, disable autostart in noscreen and quit it. The new bundle ID may install Veilo alongside noscreen; check your data in Veilo before removing the old application. Enable autostart again in Veilo if desired.
+
+Data locations are `%APPDATA%\com.veilo.app` on Windows and `~/Library/Application Support/com.veilo.app` on macOS. Migration reads the old folder with the same parent. The internal Rust crate name and injection hook remain stable. Repository and download links point to `ilse31/veilo`.
+
+The logo source is `static/veilo.svg`. Regenerate desktop icons with `npm run tauri -- icon static/veilo.svg`, then copy `src-tauri/icons/32x32.png` to `static/favicon.png`.
 
 ## Platform support
 
@@ -52,7 +68,7 @@ The protection is enforced at the OS level (Windows `WDA_EXCLUDEFROMCAPTURE`, ma
 
 ### Ghost typing (Windows-only)
 
-A low-level keyboard hook that captures every keystroke globally and routes it to noscreen, so you can type into the overlay while the browser behind it stays focused. The browser never sees the keys — no blur event, no visibility change — and noscreen never has to steal focus.
+A low-level keyboard hook that captures every keystroke globally and routes it to Veilo, so you can type into the overlay while the browser behind it stays focused. The browser never sees the keys — no blur event, no visibility change — and Veilo never has to steal focus.
 
 Triggered with `Ctrl+Alt+G`. Useful for typing prompts into an AI without the meeting app noticing you switched windows.
 
@@ -165,10 +181,10 @@ npm run check      # svelte-check + tsc
 
 ## Limitations & honest disclaimers
 
-- **Physical cameras still see your screen.** If someone points a phone at your monitor, noscreen cannot help.
+- **Physical cameras still see your screen.** If someone points a phone at your monitor, Veilo cannot help.
 - **Screen-mirroring hardware (HDMI splitters, KVMs) bypass OS protection** — those see the raw display output.
 - **Some legacy capture tools** that use undocumented kernel APIs may bypass `WDA_EXCLUDEFROMCAPTURE`. Modern tools (Zoom, Teams, Meet, OBS) respect it.
-- **Test before you trust it.** Try sharing your screen in a test meeting with noscreen open before relying on it for anything important.
+- **Test before you trust it.** Try sharing your screen in a test meeting with Veilo open before relying on it for anything important.
 - **Use responsibly.** This is a privacy tool, not a tool for academic dishonesty, contractual deception, or anything that violates the rules of the context you're in.
 
 ## License

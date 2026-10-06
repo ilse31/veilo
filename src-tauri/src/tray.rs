@@ -7,14 +7,14 @@ use tauri::{
 pub fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
     let show_hide = MenuItem::with_id(app, "show_hide", "Show / Hide", true, None::<&str>)?;
     let settings_item = MenuItem::with_id(app, "settings", "Settings", true, None::<&str>)?;
-    let quit = MenuItem::with_id(app, "quit", "Quit noscreen", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", "Quit Veilo", true, None::<&str>)?;
 
     let menu = Menu::with_items(app, &[&show_hide, &settings_item, &quit])?;
 
     TrayIconBuilder::new()
         .menu(&menu)
         .show_menu_on_left_click(false)
-        .tooltip("noscreen")
+        .tooltip("Veilo")
         .on_menu_event(|app, event| match event.id.as_ref() {
             "show_hide" => crate::commands::toggle_visibility(app.clone()),
             "settings" => crate::commands::open_settings(app.clone()),

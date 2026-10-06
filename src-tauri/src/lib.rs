@@ -6,6 +6,7 @@ mod db;
 mod ghost_typing;
 mod protection;
 mod stt;
+mod storage_migration;
 mod tray;
 
 use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
@@ -41,13 +42,13 @@ pub const INJECT_BOOTSTRAP: &str = r#"
     }
   } catch(e) {}
 
-  // --- noscreen text injection ---
+  // --- Veilo text injection ---
   window.__noscreen_inject = function(text) {
     // Try AI chat selectors first, then fall back to any textarea
     var el = document.querySelector('div[contenteditable="true"]')
            || document.querySelector('#prompt-textarea')
            || document.querySelector('textarea');
-    if (!el) { console.warn('[noscreen] input element not found'); return; }
+    if (!el) { console.warn('[Veilo] input element not found'); return; }
 
     el.focus();
     el.click();
@@ -87,6 +88,12 @@ pub fn run() {
         .manage(chat::ChatAbortState::default())
         .setup(|app| {
             let app_data_dir = app.path().app_data_dir()?;
+            storage_migration::migrate(&app_data_dir).map_err(|error| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Veilo could not migrate existing data. Close noscreen and retry. Original data is preserved. Details: {error}"),
+                )
+            })?;
             let profile_db = db::open(&app_data_dir).map_err(|e| {
                 std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
             })?;
@@ -117,7 +124,7 @@ pub fn run() {
                 "ai-view",
                 hub_url, 
             )
-            .title("no‑screen")
+            .title("Veilo")
             .decorations(false)
             .shadow(false)
             .always_on_top(true)
@@ -179,7 +186,7 @@ pub fn run() {
                 WebviewUrl::App("index.html".into())
             };
             let settings_win = WebviewWindowBuilder::new(app, "settings", settings_url)
-                .title("noscreen — Settings")
+                .title("Veilo — Settings")
                 .content_protected(true)
                 .inner_size(380.0, 480.0)
                 .resizable(false)
@@ -206,7 +213,7 @@ pub fn run() {
                 WebviewUrl::App("index.html".into())
             };
             let copilot_card = WebviewWindowBuilder::new(app, "copilot-card", card_url)
-                .title("noscreen — Copilot")
+                .title("Veilo — Copilot")
                 .decorations(false)
                 .shadow(false)
                 .always_on_top(true)

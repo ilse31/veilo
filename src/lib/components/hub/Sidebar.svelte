@@ -31,8 +31,8 @@
   <div class="titlebar-spacer" data-tauri-drag-region></div>
 
   <div class="hub-brand">
-    <div class="hub-brand-logo">N</div>
-    <div class="hub-brand-name">no‑screen</div>
+    <img class="hub-brand-logo" src="/veilo.svg" alt="" width="24" height="24" />
+    <div class="hub-brand-name">Veilo</div>
     <div class="hub-brand-sub">{appVersion ? `v${appVersion}` : '...'}</div>
   </div>
 

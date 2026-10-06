@@ -37,7 +37,7 @@
       try {
         await injectText(text)
       } catch (e) {
-        console.error('[noscreen] inject failed', e)
+        console.error('[Veilo] inject failed', e)
       } finally {
         speechState.set('idle')
       }

@@ -1,7 +1,7 @@
 {
-  "name": "tauri-app",
+  "name": "veilo",
   "version": "1.2.0",
-  "description": "",
+  "description": "Veilo — Your quiet AI companion.",
   "type": "module",
   "scripts": {
     "dev": "vite dev",

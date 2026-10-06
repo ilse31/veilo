@@ -51,7 +51,7 @@
 </script>
 
 <div class="min-h-screen bg-gray-900 text-white p-6 font-sans">
-  <h1 class="text-base font-semibold mb-6 text-gray-100">noscreen — Settings</h1>
+  <h1 class="text-base font-semibold mb-6 text-gray-100">Veilo — Settings</h1>
 
   <div class="mb-5">
     <p class="text-xs text-gray-400 mb-2 uppercase tracking-wide">AI Site</p>
