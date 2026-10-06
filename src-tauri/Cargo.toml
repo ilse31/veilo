@@ -1,6 +1,6 @@
 [package]
 name = "tauri-app"
-version = "1.2.0"
+version = "1.0.0"
 description = "Veilo — Your quiet AI companion."
 authors = ["you"]
 edition = "2021"

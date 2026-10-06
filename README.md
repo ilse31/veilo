@@ -1,5 +1,7 @@
 # Veilo
 
+[Download v1.0.0](https://github.com/ilse31/veilo/releases/tag/v1.0.0) · [Website](https://ilse31.github.io/veilo/)
+
 > Your quiet AI companion.
 
 A desktop privacy overlay that stays visible to you but invisible to screen sharing and recording.
@@ -34,6 +36,8 @@ Veilo is the new name for noscreen, with application identifier `com.veilo.app`.
 Data locations are `%APPDATA%\com.veilo.app` on Windows and `~/Library/Application Support/com.veilo.app` on macOS. Migration reads the old folder with the same parent. The internal Rust crate name and injection hook remain stable. Repository and download links point to `ilse31/veilo`.
 
 The logo source is `static/veilo.svg`. Regenerate desktop icons with `npm run tauri -- icon static/veilo.svg`, then copy `src-tauri/icons/32x32.png` to `static/favicon.png`.
+
+Veilo starts its own release series at **v1.0.0**, independently of the older noscreen version numbers. GitHub Actions builds Windows x64 and macOS arm64/x64 installers, then publishes the release only after all builds succeed. GitHub Pages deploys the standalone landing page (`index.html` and its assets), not the desktop webview application.
 
 ## Platform support
 

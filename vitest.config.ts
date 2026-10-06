@@ -1,4 +1,4 @@
-import { defineConfig } from 'vitest/config'
+import { configDefaults, defineConfig } from 'vitest/config'
 import { svelte } from '@sveltejs/vite-plugin-svelte'
 import { resolve } from 'path'
 
@@ -12,6 +12,7 @@ export default defineConfig({
     conditions: ['browser'],
   },
   test: {
+    exclude: [...configDefaults.exclude, '**/.kilo/**', '**/.worktrees/**'],
     environment: 'jsdom',
     alias: {
       '$lib': resolve(__dirname, './src/lib'),

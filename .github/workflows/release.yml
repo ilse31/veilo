@@ -9,8 +9,42 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Verify release tag matches app versions
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+          REF_TYPE: ${{ github.ref_type }}
+        run: |
+          node --input-type=module <<'JS'
+          import fs from 'node:fs';
+          const pkg = JSON.parse(fs.readFileSync('package.json'));
+          const lock = JSON.parse(fs.readFileSync('package-lock.json'));
+          const tauri = JSON.parse(fs.readFileSync('src-tauri/tauri.conf.json'));
+          const cargo = fs.readFileSync('src-tauri/Cargo.toml', 'utf8').match(/^version = "([^"]+)"/m)[1];
+          if (process.env.REF_TYPE !== 'tag' || process.env.RELEASE_TAG !== `v${pkg.version}` ||
+              [lock.version, lock.packages[''].version, tauri.version, cargo].some(v => v !== pkg.version)) {
+            throw new Error('Run this workflow on a version tag matching every app manifest.');
+          }
+          JS
+      - run: npm ci
+      - run: npm run check
+      - run: npm test
+      - run: npm run build
+
   build:
+    needs: validate
     strategy:
       fail-fast: false
       matrix:
@@ -34,7 +68,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'npm'
 
       - name: Install Rust stable
@@ -60,7 +94,15 @@ jobs:
           releaseBody: |
             ## Veilo ${{ github.ref_name }}
 
-            Protected overlay for ChatGPT / Claude.ai — invisible to screen sharing tools.
+            Your quiet AI companion. The first release under the Veilo name.
+
+            - New Veilo branding, layered V icon, and desktop app identity.
+            - Automatically imports existing noscreen settings, AI keys, and chat/Copilot data.
+            - Original data is retained; existing Veilo data is never overwritten.
+
+            Before upgrading, disable noscreen autostart and quit the old app.
+            Embedded ChatGPT/Claude services may require signing in again.
+            macOS system-audio capture requires macOS 14.2 or later.
 
             ### Downloads
             | Platform | File |
@@ -75,6 +117,17 @@ jobs:
             ### Install (macOS)
             Open the `.dmg`, drag Veilo to Applications.
             First launch: right-click → Open to bypass Gatekeeper (app is unsigned).
-          releaseDraft: false
+          releaseDraft: true
           prerelease: false
           args: --target ${{ matrix.target }}
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish completed release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: gh release edit "$RELEASE_TAG" --draft=false --latest
