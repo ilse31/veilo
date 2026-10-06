@@ -11,3 +11,6 @@ vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 src-tauri/target/
 /docs
+/.codegraph/
+/.claude/
+/[Aa][Gg][Ee][Nn][Tt][Ss].[Mm][Dd]
