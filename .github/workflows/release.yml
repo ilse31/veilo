@@ -94,15 +94,20 @@ jobs:
           releaseBody: |
             ## Veilo ${{ github.ref_name }}
 
-            Your quiet AI companion. The first release under the Veilo name.
+            Your quiet AI companion.
 
-            - New Veilo branding, layered V icon, and desktop app identity.
-            - Automatically imports existing noscreen settings, AI keys, and chat/Copilot data.
-            - Original data is retained; existing Veilo data is never overwritten.
+            ### New
+            - Deepgram streaming speech-to-text with live partial results and its own API key.
+            - Microphone input and a combined mode (other party's audio + your voice).
+            - Chat-style Q&A: one answer per spoken question.
+            - Live transcript panel and an "always Indonesian" toggle for transcripts and answers.
+            - Session summaries render as Markdown.
 
-            Before upgrading, disable noscreen autostart and quit the old app.
-            Embedded ChatGPT/Claude services may require signing in again.
-            macOS system-audio capture requires macOS 14.2 or later.
+            ### Fixed
+            - macOS loopback lost most of the audio with Bluetooth headsets in hands-free mode.
+            - Invalid AI endpoint URLs now fail fast with a clear message.
+
+            macOS system-audio capture requires macOS 14.2 or later. See CHANGELOG.md for details.
 
             ### Downloads
             | Platform | File |
