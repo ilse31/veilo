@@ -4,7 +4,8 @@
   import { invoke } from '@tauri-apps/api/core'
   import { getCurrentWindow } from '@tauri-apps/api/window'
   import { settings } from '$lib/stores/settings.svelte'
-  import { copilotSetCustomInstruction } from '$lib/copilot/api'
+  import { copilotSetCustomInstruction, copilotSetForceIndonesian } from '$lib/copilot/api'
+  import { getConfig } from '$lib/tauri'
   import { marked } from 'marked'
   import DOMPurify from 'dompurify'
 
@@ -17,19 +18,62 @@
   type Format = 'Bullets' | 'Headline' | 'Code'
   interface Suggestion {
     id: string
+    question: string
     text: string
     format: Format
     done: boolean
     timestamp: number
   }
 
+  // Chat thread: one question → one answer, oldest first.
+  const MAX_THREAD = 50
   let history = $state<Suggestion[]>([])
-  let activeIdx = $state(0)
+  let chatEl = $state<HTMLDivElement | null>(null)
   let pinned = $state(false)
   let pulse = $state(false)
   let instText = $state('')
 
-  const current = $derived(history[activeIdx] ?? null)
+  const last = $derived(history[history.length - 1] ?? null)
+
+  function scrollChat() {
+    queueMicrotask(() => { if (chatEl) chatEl.scrollTop = chatEl.scrollHeight })
+  }
+
+  // ── Live transcript ("what the STT heard") ────────────────────────────────
+  const TRANSCRIPT_KEEP = 5
+  type Source = 'main' | 'remote' | 'self'
+  let finals = $state<{ id: number; text: string; source: Source; start_ms: number }[]>([])
+  // Indonesian translations (when "always Indonesian" is on), keyed by original text.
+  let translations = $state<Record<string, string>>({})
+  let forceId = $state(false)
+  function tr(original: string): string | null {
+    const t = translations[original.trim()]
+    return t && t.trim() !== original.trim() ? t : null
+  }
+  async function toggleForceId() {
+    const next = !forceId
+    forceId = next
+    try { await copilotSetForceIndonesian(next) } catch (e) { forceId = !next; console.error(e) }
+  }
+  let partials = $state<Partial<Record<Source, string>>>({})
+  const partialLines = $derived(
+    (Object.entries(partials) as [Source, string][]).filter(([, t]) => t),
+  )
+  const SOURCE_LABEL: Record<Source, string> = { main: '', remote: 'Lawan', self: 'Saya' }
+  let finalSeq = 0
+  let showTranscript = $state(readShowTranscript())
+  let transcriptEl = $state<HTMLDivElement | null>(null)
+
+  function readShowTranscript(): boolean {
+    try { return localStorage.getItem('veilo.showTranscript') !== '0' } catch { return true }
+  }
+  function toggleTranscript() {
+    showTranscript = !showTranscript
+    try { localStorage.setItem('veilo.showTranscript', showTranscript ? '1' : '0') } catch {}
+  }
+  function scrollTranscript() {
+    queueMicrotask(() => { if (transcriptEl) transcriptEl.scrollTop = transcriptEl.scrollHeight })
+  }
 
   async function submitInstruction() {
     try {
@@ -48,34 +92,44 @@
 
   onMount(() => {
     let unsubs: Array<() => void> = []
+    getConfig().then(c => { forceId = !!c.force_indonesian }).catch(() => {})
 
     const setup = async () => {
-      const offDelta = await listen<{id:string, delta:string, format:Format}>(
+      const offDelta = await listen<{id:string, question:string, delta:string, format:Format}>(
         'copilot-suggest-delta', ({payload}) => {
           const existing = history.find(h => h.id === payload.id)
           if (existing) {
             existing.text += payload.delta
           } else {
-            history = [{
-              id: payload.id, text: payload.delta,
+            history = [...history, {
+              id: payload.id, question: payload.question, text: payload.delta,
               format: payload.format, done: false, timestamp: Date.now(),
-            }, ...history].slice(0, 10)
-            activeIdx = 0
+            }].slice(-MAX_THREAD)
             pulse = true
             setTimeout(() => pulse = false, 600)
           }
+          scrollChat()
         }
       )
-      const offDone = await listen<{id:string}>('copilot-suggest-done', ({payload}) => {
-        const s = history.find(h => h.id === payload.id)
+      const offDone = await listen<{id:string, question:string, full_text:string}>('copilot-suggest-done', ({payload}) => {
+        let s = history.find(h => h.id === payload.id)
+        if (!s && payload.full_text) {
+          // Done arrived without any delta (non-streaming provider).
+          history = [...history, {
+            id: payload.id, question: payload.question, text: payload.full_text,
+            format: 'Bullets' as Format, done: false, timestamp: Date.now(),
+          }].slice(-MAX_THREAD)
+          s = history[history.length - 1]
+        }
         if (s) {
           s.done = true
+          scrollChat()
           // Schedule auto-dismiss if not pinned and timeout > 0
           const dismissAfterMs = settings.copilotAutoDismissS * 1000
           if (dismissAfterMs > 0) {
             setTimeout(() => {
               // Only dismiss if: still showing this suggestion as current, not pinned, no newer arrived
-              if (!pinned && history[0]?.id === payload.id) {
+              if (!pinned && history[history.length - 1]?.id === payload.id) {
                 getCurrentWindow().hide()
               }
             }, dismissAfterMs)
@@ -85,15 +139,42 @@
       const offEnd = await listen('copilot-session-ended', async () => {
         await getCurrentWindow().hide()
         history = []
+        finals = []
+        partials = {}
+        translations = {}
+
       })
-      unsubs = [offDelta, offDone, offEnd]
+      const srcOf = (s?: string): Source => (s === 'remote' || s === 'self' ? s : 'main')
+      const offPartial = await listen<{ text: string; source?: string }>('copilot-transcript-partial', ({ payload }) => {
+        partials = { ...partials, [srcOf(payload.source)]: payload.text }
+        scrollTranscript()
+      })
+      const offFinal = await listen<{ text: string; source?: string; start_ms?: number }>('copilot-transcript-final', ({ payload }) => {
+        const source = srcOf(payload.source)
+        partials = { ...partials, [source]: '' }
+        finals = [...finals, {
+          id: ++finalSeq, text: payload.text, source, start_ms: payload.start_ms ?? 0,
+        }].slice(-TRANSCRIPT_KEEP)
+        scrollTranscript()
+      })
+      const offTranslated = await listen<{ original: string; text: string }>(
+        'copilot-transcript-translated', ({ payload }) => {
+          translations = { ...translations, [payload.original.trim()]: payload.text }
+          scrollTranscript()
+        },
+      )
+      unsubs = [offDelta, offDone, offEnd, offPartial, offFinal, offTranslated]
     }
     setup()
     return () => unsubs.forEach(u => u())
   })
 
-  function copy() {
-    if (current) navigator.clipboard.writeText(current.text)
+  function copy(text: string) {
+    navigator.clipboard.writeText(text)
+  }
+  function clearThread() { history = [] }
+  function fmtTime(ts: number): string {
+    return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
   }
   async function dismiss() {
     try {
@@ -105,26 +186,61 @@
   function regenerate() {
     invoke('copilot_force_regenerate')
   }
-  function prev() { if (activeIdx < history.length - 1) activeIdx++ }
-  function next() { if (activeIdx > 0) activeIdx-- }
 </script>
 
 <div class="card" class:pulse>
   <div class="header" data-tauri-drag-region>
-    <span class="status-dot" class:done={current?.done} class:loading={current && !current.done}></span>
+    <span class="status-dot" class:done={last?.done} class:loading={last && !last.done}></span>
     <span class="title">Copilot</span>
+    <button class="x tr-toggle id-toggle" class:active={forceId} onclick={toggleForceId}
+            title="Selalu Bahasa Indonesia: terjemahkan transkrip dan jawaban walau lawan bicara memakai bahasa lain"
+            aria-label="Selalu Bahasa Indonesia">ID</button>
+    <button class="x tr-toggle" class:active={showTranscript} onclick={toggleTranscript}
+            title="Tampilkan/sembunyikan transkrip" aria-label="Transkrip">🎙</button>
     <button class="x" onclick={dismiss} aria-label="Tutup">✕</button>
   </div>
 
-  <div class="body">
-    {#if !current}
+  <div class="body chat" bind:this={chatEl}>
+    {#if history.length === 0}
       <div class="empty">Menunggu suara…</div>
-    {:else if current.format === 'Code'}
-      <pre class="code">{current.text}</pre>
-    {:else}
-      <div class="md">{@html renderMd(current.text)}</div>
     {/if}
+    {#each history as item, i (item.id)}
+      <div class="qa">
+        <div class="q">
+          <div class="q-meta">Q{i + 1} · {fmtTime(item.timestamp)}</div>
+          <div class="q-text">{tr(item.question) ?? item.question}</div>
+          {#if tr(item.question)}<div class="q-orig">{item.question}</div>{/if}
+        </div>
+        <div class="a" class:streaming={!item.done}>
+          {#if item.format === 'Code'}
+            <pre class="code">{item.text}</pre>
+          {:else}
+            <div class="md">{@html renderMd(item.text)}</div>
+          {/if}
+          <button class="a-copy" onclick={() => copy(item.text)} title="Copy jawaban">📋</button>
+        </div>
+      </div>
+    {/each}
   </div>
+
+  {#if showTranscript}
+    <div class="transcript" bind:this={transcriptEl} aria-label="Transkrip suara">
+      {#if finals.length === 0 && partialLines.length === 0}
+        <div class="tr-empty">Transkrip ucapan akan muncul di sini…</div>
+      {/if}
+      {#each finals as f (f.id)}
+        <div class="tr-line" class:tr-self={f.source === 'self'}>
+          {#if SOURCE_LABEL[f.source]}<span class="tr-tag">{SOURCE_LABEL[f.source]}</span>{/if}{tr(f.text) ?? f.text}
+          {#if tr(f.text)}<div class="tr-orig">{f.text}</div>{/if}
+        </div>
+      {/each}
+      {#each partialLines as [src, text] (src)}
+        <div class="tr-line tr-partial" class:tr-self={src === 'self'}>
+          {#if SOURCE_LABEL[src]}<span class="tr-tag">{SOURCE_LABEL[src]}</span>{/if}{text}
+        </div>
+      {/each}
+    </div>
+  {/if}
 
   <!-- Real-time instructions -->
   <div class="inst-box">
@@ -139,16 +255,10 @@
   </div>
 
   <div class="footer">
-    {#if history.length > 1}
-      <div class="nav">
-        <button onclick={prev} disabled={activeIdx >= history.length - 1}>◀</button>
-        <span>{activeIdx + 1}/{history.length}</span>
-        <button onclick={next} disabled={activeIdx <= 0}>▶</button>
-      </div>
-    {/if}
+    <span class="count">{history.length > 0 ? `${history.length} tanya-jawab` : ''}</span>
     <div class="actions">
-      <button onclick={regenerate} title="Regenerate">↻</button>
-      <button onclick={copy} title="Copy">📋</button>
+      <button onclick={regenerate} title="Jawab ulang pertanyaan terakhir">↻</button>
+      <button onclick={clearThread} title="Bersihkan percakapan">🗑</button>
       <button class:active={pinned} onclick={() => pinned = !pinned} title="Pin">📌</button>
     </div>
   </div>
@@ -212,12 +322,67 @@
   .footer { display: flex; justify-content: space-between; align-items: center;
             padding: 6px 12px; border-top: 1px solid rgba(255,255,255,0.06);
             font-size: 11px; }
-  .nav button, .actions button {
+  .actions button {
     background: none; border: none; color: #b8b8c0; cursor: pointer;
     padding: 4px 6px; border-radius: 4px;
   }
-  .nav button:hover, .actions button:hover { background: rgba(255,255,255,0.06); }
+  .actions button:hover { background: rgba(255,255,255,0.06); }
   .actions button.active { color: #5e6ad2; }
+
+  /* Chat thread */
+  .chat { display: flex; flex-direction: column; gap: 14px; }
+  .qa { display: flex; flex-direction: column; gap: 6px; }
+  .q {
+    align-self: flex-end; max-width: 88%;
+    background: rgba(94,106,210,0.22);
+    border: 1px solid rgba(94,106,210,0.35);
+    border-radius: 12px 12px 3px 12px;
+    padding: 6px 10px;
+  }
+  .q-meta { font-size: 10px; color: #9a9ab0; margin-bottom: 2px; }
+  .q-text { font-size: 12.5px; color: #f0f0f5; user-select: text; }
+  .a {
+    position: relative; align-self: flex-start; max-width: 96%;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.07);
+    border-radius: 12px 12px 12px 3px;
+    padding: 8px 12px; user-select: text;
+  }
+  .a.streaming { border-color: rgba(94,106,210,0.5); }
+  .a-copy {
+    position: absolute; top: 2px; right: 2px;
+    background: none; border: none; cursor: pointer;
+    opacity: 0; font-size: 11px; padding: 2px 4px; border-radius: 4px;
+  }
+  .a:hover .a-copy { opacity: 0.7; }
+  .a-copy:hover { background: rgba(255,255,255,0.08); opacity: 1; }
+  .count { color: #8a8a96; }
+
+  /* Live transcript */
+  .tr-toggle { opacity: 0.5; }
+  .tr-toggle.active { opacity: 1; }
+  .transcript {
+    max-height: 84px; overflow-y: auto;
+    padding: 6px 12px;
+    border-top: 1px solid rgba(255,255,255,0.06);
+    background: rgba(0,0,0,0.12);
+    font-size: 11.5px; line-height: 1.45;
+    user-select: text;
+  }
+  .tr-line { color: #d4d4dc; margin-bottom: 2px; }
+  .tr-partial { color: #8e8e9a; font-style: italic; }
+  .id-toggle { font-size: 10px; font-weight: 700; letter-spacing: 0.3px; }
+  .id-toggle.active { color: #7ee2b0; }
+  .q-orig { margin-top: 2px; font-size: 10.5px; color: #9a9ab0; font-style: italic; }
+  .tr-orig { font-size: 10.5px; color: #77778a; font-style: italic; }
+  .tr-tag {
+    display: inline-block; margin-right: 6px; padding: 0 5px;
+    font-size: 9.5px; font-style: normal; border-radius: 4px;
+    background: rgba(94,106,210,0.25); color: #b9c0ff;
+  }
+  .tr-self { color: #a8e6c8; }
+  .tr-self .tr-tag { background: rgba(25,195,125,0.2); color: #7ee2b0; }
+  .tr-empty { color: #666; font-style: italic; }
 
   /* Real-time instructions style */
   .inst-box {
