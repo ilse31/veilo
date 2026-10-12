@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>NSAudioCaptureUsageDescription</key>
+  <string>Veilo captures system audio (what you hear, e.g. a meeting or interview) so it can transcribe the other party.</string>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>Veilo needs microphone access to transcribe your voice when the microphone audio source is selected.</string>
+</dict>
+</plist>

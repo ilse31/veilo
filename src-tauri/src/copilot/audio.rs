@@ -15,6 +15,27 @@ use tokio::sync::mpsc;
 const TARGET_SAMPLE_RATE: u32 = 16_000;
 const CHUNK_SAMPLES: usize = 1_600; // 100ms at 16kHz mono
 
+/// Snap a measured frames-per-second figure to the nearest standard audio
+/// sample rate. The macOS tap's advertised format can disagree with what the
+/// aggregate device really delivers (e.g. a Bluetooth headset that drops to
+/// 16kHz hands-free mode once its microphone is opened), so the callback
+/// measures the real rate and uses this to pick a clean value.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn snap_sample_rate(measured: f64) -> u32 {
+    const RATES: [u32; 11] = [
+        8_000, 11_025, 16_000, 22_050, 24_000, 32_000, 44_100, 48_000, 88_200, 96_000, 192_000,
+    ];
+    RATES
+        .iter()
+        .copied()
+        .min_by(|a, b| {
+            let da = (*a as f64 - measured).abs();
+            let db = (*b as f64 - measured).abs();
+            da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
+        })
+        .unwrap_or(TARGET_SAMPLE_RATE)
+}
+
 pub struct AudioCapture {
     pub stop_flag: Arc<AtomicBool>,
     rx: Option<mpsc::Receiver<Vec<f32>>>,
@@ -136,6 +157,11 @@ pub fn start_loopback() -> Result<AudioCapture, String> {
         buf16k: Vec<f32>,
         channels: usize,
         step: f32,
+        /// Currently assumed device rate, re-measured every ~1s from the
+        /// frames actually delivered (see `snap_sample_rate`).
+        rate: u32,
+        win_start: std::time::Instant,
+        win_frames: usize,
     }
 
     extern "C" fn tap_io_proc(
@@ -161,6 +187,23 @@ pub fn start_loopback() -> Result<AudioCapture, String> {
         let data = unsafe {
             std::slice::from_raw_parts(buf.data as *const f32, frame_count * ctx.channels)
         };
+
+        ctx.win_frames += frame_count;
+        let elapsed = ctx.win_start.elapsed();
+        if elapsed >= std::time::Duration::from_millis(1_000) {
+            let measured = ctx.win_frames as f64 / elapsed.as_secs_f64();
+            let snapped = snap_sample_rate(measured);
+            if snapped != ctx.rate {
+                eprintln!(
+                    "[audio] mac tap rate changed: {} -> {} Hz (measured {:.0})",
+                    ctx.rate, snapped, measured
+                );
+                ctx.rate = snapped;
+                ctx.step = snapped as f32 / TARGET_SAMPLE_RATE as f32;
+            }
+            ctx.win_start = std::time::Instant::now();
+            ctx.win_frames = 0;
+        }
 
         let mut i = 0.0_f32;
         while (i as usize) < frame_count {
@@ -268,6 +311,9 @@ pub fn start_loopback() -> Result<AudioCapture, String> {
             buf16k: Vec::with_capacity(CHUNK_SAMPLES),
             channels,
             step: input_rate as f32 / TARGET_SAMPLE_RATE as f32,
+            rate: input_rate,
+            win_start: std::time::Instant::now(),
+            win_frames: 0,
         });
 
         let proc_id = match agg_device.create_io_proc_id(tap_io_proc, Some(ctx.as_mut())) {
@@ -313,6 +359,155 @@ pub fn start_loopback() -> Result<AudioCapture, String> {
     Err("Loopback capture is only supported on Windows and macOS 14.2+ in v1".into())
 }
 
+/// Mono-downmix + linear resample to 16kHz, emitting ~100ms chunks.
+/// Keeps the fractional read position across callbacks so chunk boundaries
+/// don't introduce clicks.
+struct Downmixer {
+    tx:       mpsc::Sender<Vec<f32>>,
+    buf:      Vec<f32>,
+    channels: usize,
+    step:     f32,
+    pos:      f32,
+}
+
+impl Downmixer {
+    fn new(channels: usize, input_rate: u32, tx: mpsc::Sender<Vec<f32>>) -> Self {
+        Self {
+            tx,
+            buf: Vec::with_capacity(CHUNK_SAMPLES),
+            channels: channels.max(1),
+            step: input_rate as f32 / TARGET_SAMPLE_RATE as f32,
+            pos: 0.0,
+        }
+    }
+
+    fn push(&mut self, data: &[f32]) {
+        let frames = data.len() / self.channels;
+        while (self.pos as usize) < frames {
+            let idx = (self.pos as usize) * self.channels;
+            let sum: f32 = data[idx..idx + self.channels].iter().sum();
+            self.buf.push(sum / self.channels as f32);
+            if self.buf.len() >= CHUNK_SAMPLES {
+                let chunk = std::mem::replace(&mut self.buf, Vec::with_capacity(CHUNK_SAMPLES));
+                // Back-pressure: drop chunks if the consumer is far behind.
+                let _ = self.tx.try_send(chunk);
+            }
+            self.pos += self.step;
+        }
+        self.pos -= frames as f32;
+    }
+}
+
+/// Names of available input (microphone) devices on the default host.
+pub fn list_input_devices() -> Vec<String> {
+    use cpal::traits::{DeviceTrait, HostTrait};
+    cpal::default_host()
+        .input_devices()
+        .map(|devs| devs.filter_map(|d| d.name().ok()).collect())
+        .unwrap_or_default()
+}
+
+fn build_mic_stream<T>(
+    device: &cpal::Device,
+    config: &cpal::StreamConfig,
+    mut mixer: Downmixer,
+) -> Result<cpal::Stream, cpal::BuildStreamError>
+where
+    T: cpal::SizedSample,
+    f32: cpal::FromSample<T>,
+{
+    use cpal::traits::DeviceTrait;
+    use cpal::Sample;
+    let mut scratch: Vec<f32> = Vec::new();
+    device.build_input_stream(
+        config,
+        move |data: &[T], _| {
+            scratch.clear();
+            scratch.extend(data.iter().map(|s| f32::from_sample(*s)));
+            mixer.push(&scratch);
+        },
+        |e| eprintln!("[audio] mic stream error: {e}"),
+        None,
+    )
+}
+
+/// Capture from a microphone / input device (cross-platform via cpal).
+/// `device_name` of `None` (or a name that is no longer present) uses the
+/// system default input device.
+pub fn start_microphone(device_name: Option<String>) -> Result<AudioCapture, String> {
+    use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+
+    let stop_flag = Arc::new(AtomicBool::new(false));
+    let stop_for_thread = stop_flag.clone();
+    let (tx, rx) = mpsc::channel::<Vec<f32>>(64);
+    let (setup_tx, setup_rx) = std::sync::mpsc::channel::<Result<(), String>>();
+
+    // The cpal Stream is not Send on every platform, so it is created, played
+    // and dropped on this one thread.
+    std::thread::spawn(move || {
+        let setup = (|| -> Result<cpal::Stream, String> {
+            let host = cpal::default_host();
+            let named = device_name.as_deref().and_then(|want| {
+                host.input_devices()
+                    .ok()?
+                    .find(|d| d.name().map(|n| n == want).unwrap_or(false))
+            });
+            if named.is_none() {
+                if let Some(want) = device_name.as_deref() {
+                    eprintln!("[audio] mic {want:?} not found; using default input");
+                }
+            }
+            let device = named
+                .or_else(|| host.default_input_device())
+                .ok_or_else(|| "no input device (microphone) found".to_string())?;
+            let name = device.name().unwrap_or_else(|_| "unknown".into());
+            let supported = device
+                .default_input_config()
+                .map_err(|e| format!("default_input_config: {e}"))?;
+            let format = supported.sample_format();
+            let channels = supported.channels() as usize;
+            let rate = supported.sample_rate().0;
+            let config = supported.config();
+            eprintln!("[audio] mic start: device={name:?} sr={rate} ch={channels} fmt={format:?}");
+
+            let mixer = Downmixer::new(channels, rate, tx);
+            let stream = match format {
+                cpal::SampleFormat::F32 => build_mic_stream::<f32>(&device, &config, mixer),
+                cpal::SampleFormat::I16 => build_mic_stream::<i16>(&device, &config, mixer),
+                cpal::SampleFormat::U16 => build_mic_stream::<u16>(&device, &config, mixer),
+                cpal::SampleFormat::I32 => build_mic_stream::<i32>(&device, &config, mixer),
+                other => return Err(format!("unsupported mic sample format: {other:?}")),
+            }
+            .map_err(|e| format!("build_input_stream: {e}"))?;
+            stream.play().map_err(|e| format!("stream.play: {e}"))?;
+            Ok(stream)
+        })();
+
+        let stream = match setup {
+            Ok(s) => {
+                let _ = setup_tx.send(Ok(()));
+                s
+            }
+            Err(e) => {
+                let _ = setup_tx.send(Err(e));
+                return;
+            }
+        };
+
+        while !stop_for_thread.load(Ordering::Relaxed) {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        eprintln!("[audio] mic stop");
+        drop(stream);
+    });
+
+    match setup_rx.recv() {
+        Ok(Ok(())) => Ok(AudioCapture { stop_flag, rx: Some(rx) }),
+        Ok(Err(e)) => Err(e),
+        Err(_) => Err("microphone setup thread ended before reporting a result".into()),
+    }
+}
+
 // ── stub for tests on platforms without a loopback implementation ─────────────
 #[cfg(all(not(target_os = "windows"), not(target_os = "macos"), test))]
 fn _make_stub_capture() -> AudioCapture {
@@ -324,6 +519,37 @@ fn _make_stub_capture() -> AudioCapture {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn downmixer_averages_channels_and_decimates() {
+        let (tx, mut rx) = mpsc::channel::<Vec<f32>>(4);
+        // 48kHz stereo → step 3: 1 of every 3 frames kept.
+        let mut m = Downmixer::new(2, 48_000, tx);
+        let frames = 3 * CHUNK_SAMPLES;
+        let data: Vec<f32> = (0..frames).flat_map(|_| [0.2_f32, 0.6_f32]).collect();
+        m.push(&data);
+        let chunk = rx.try_recv().expect("one 100ms chunk");
+        assert_eq!(chunk.len(), CHUNK_SAMPLES);
+        assert!(chunk.iter().all(|s| (s - 0.4).abs() < 1e-6));
+    }
+
+    #[test]
+    fn downmixer_carries_position_across_callbacks() {
+        let (tx, mut rx) = mpsc::channel::<Vec<f32>>(4);
+        let mut m = Downmixer::new(1, 16_000, tx);
+        m.push(&vec![0.1; CHUNK_SAMPLES / 2]);
+        assert!(rx.try_recv().is_err());
+        m.push(&vec![0.1; CHUNK_SAMPLES / 2]);
+        assert_eq!(rx.try_recv().unwrap().len(), CHUNK_SAMPLES);
+    }
+
+    #[test]
+    fn snap_sample_rate_picks_nearest_standard_rate() {
+        assert_eq!(snap_sample_rate(47_870.0), 48_000);
+        assert_eq!(snap_sample_rate(16_320.0), 16_000);
+        assert_eq!(snap_sample_rate(44_050.0), 44_100);
+        assert_eq!(snap_sample_rate(0.0), 8_000);
+    }
 
     #[test]
     fn module_compiles() {
