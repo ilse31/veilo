@@ -66,6 +66,10 @@ export async function copilotSetCustomInstruction(instruction: string): Promise<
   return invoke('copilot_set_custom_instruction', { instruction })
 }
 
+export async function copilotSetForceIndonesian(enabled: boolean): Promise<void> {
+  return invoke('copilot_set_force_indonesian', { enabled })
+}
+
 export async function copilotStopSession(): Promise<void> {
   return invoke('copilot_stop_session')
 }

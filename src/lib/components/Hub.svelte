@@ -84,10 +84,15 @@
       if (cfg.whisper_model) settings.whisperModel = cfg.whisper_model
       if (cfg.whisper_local_url) settings.whisperLocalUrl = cfg.whisper_local_url
       settings.sttLanguage = cfg.stt_language ?? ''
+      settings.audioSource = cfg.audio_source === 'microphone' || cfg.audio_source === 'both' ? cfg.audio_source : 'system'
+      settings.micDevice = cfg.mic_device ?? ''
     } catch {}
     try {
       const apiKey = await getProfileValue('api_key')
       if (apiKey) settings.apiKey = apiKey
+
+      const sttApiKey = await getProfileValue('stt_api_key')
+      if (sttApiKey) settings.sttApiKey = sttApiKey
       
       const apiUrl = await getProfileValue('api_url')
       if (apiUrl) settings.apiUrl = apiUrl

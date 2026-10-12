@@ -14,6 +14,9 @@ export interface Config {
   copilot_auto_dismiss_s: number
   copilot_min_interval_s: number
   stt_language:           string
+  audio_source:           string
+  mic_device:             string
+  force_indonesian:       boolean
 }
 
 export const DEFAULT_CONFIG: Config = {
@@ -30,6 +33,13 @@ export const DEFAULT_CONFIG: Config = {
   copilot_auto_dismiss_s: 25,
   copilot_min_interval_s: 4,
   stt_language:           '',
+  audio_source:           'system',
+  mic_device:             '',
+  force_indonesian:       false,
+}
+
+export async function listInputDevices(): Promise<string[]> {
+  return invoke<string[]>('copilot_list_input_devices')
 }
 
 export async function getConfig(): Promise<Config> {

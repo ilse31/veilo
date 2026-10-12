@@ -1,6 +1,6 @@
 <script lang="ts">
   import { getCurrentWindow } from '@tauri-apps/api/window'
-  import { getConfig, saveConfig, setAllContentProtected, setProfileValue, testAiConnection } from '$lib/tauri'
+  import { getConfig, listInputDevices, saveConfig, setAllContentProtected, setProfileValue, testAiConnection } from '$lib/tauri'
   import { settings } from '$lib/stores/settings.svelte'
   import { setServiceUrl } from './webviewManager'
   import HotkeyRecorder from '$lib/components/HotkeyRecorder.svelte'
@@ -101,6 +101,7 @@
 
       // Save credentials to SQLite
       await setProfileValue('api_key', settings.apiKey)
+      await setProfileValue('stt_api_key', settings.sttApiKey)
       await setProfileValue('api_url', settings.apiUrl)
       await setProfileValue('model', settings.model)
 
@@ -119,6 +120,8 @@
         copilot_auto_dismiss_s: settings.copilotAutoDismissS,
         copilot_min_interval_s: settings.copilotMinIntervalS,
         stt_language:           settings.sttLanguage,
+        audio_source:           settings.audioSource,
+        mic_device:             settings.micDevice,
       })
 
       saved = true
@@ -127,6 +130,14 @@
       saveError = String(e)
     }
   }
+
+  // ── Microphone devices
+  let inputDevices = $state<string[]>([])
+  $effect(() => {
+    if (settings.audioSource === 'microphone' || settings.audioSource === 'both') {
+      listInputDevices().then(d => inputDevices = d).catch(() => inputDevices = [])
+    }
+  })
 
   // ── Custom Copilot presets ──────────────────────────────────────────────
   let customPresets = $state<CustomPresetRow[]>([])
@@ -483,6 +494,40 @@
 
         <div class="hub-s-row">
           <div class="label-wrap">
+            <div class="l-name">Sumber audio</div>
+            <div class="l-desc"><strong>Audio sistem</strong> menangkap suara lawan bicara (meeting). <strong>Mikrofon</strong> menangkap suara Anda sendiri. <strong>Keduanya</strong>: hanya suara lawan bicara yang dijawab AI; suara Anda hanya tampil di transkrip (memakai 2 koneksi STT).</div>
+          </div>
+          <div class="field-wrap">
+            <select class="hub-input" bind:value={settings.audioSource}>
+              <option value="system">Audio sistem (loopback)</option>
+              <option value="microphone">Mikrofon / input device</option>
+              <option value="both">Keduanya (lawan bicara + suara saya)</option>
+            </select>
+          </div>
+        </div>
+
+        {#if settings.audioSource === 'microphone' || settings.audioSource === 'both'}
+          <div class="hub-s-row">
+            <div class="label-wrap">
+              <div class="l-name">Perangkat input</div>
+              <div class="l-desc">Pilih mikrofon yang dipakai. Jika perangkat tidak ditemukan, dipakai default sistem.</div>
+            </div>
+            <div class="field-wrap">
+              <select class="hub-input" bind:value={settings.micDevice}>
+                <option value="">Default sistem</option>
+                {#each inputDevices as d}
+                  <option value={d}>{d}</option>
+                {/each}
+                {#if settings.micDevice && !inputDevices.includes(settings.micDevice)}
+                  <option value={settings.micDevice}>{settings.micDevice} (tidak terdeteksi)</option>
+                {/if}
+              </select>
+            </div>
+          </div>
+        {/if}
+
+        <div class="hub-s-row">
+          <div class="label-wrap">
             <div class="l-name">STT Backend</div>
             <div class="l-desc">Engine speech-to-text.</div>
           </div>
@@ -490,16 +535,29 @@
             <select class="hub-input" bind:value={settings.sttBackend}>
               <option value="whisper-cloud">Whisper API (OpenAI)</option>
               <option value="whisper-local">Whisper Local (OpenAI-compatible)</option>
+              <option value="deepgram">Deepgram (streaming, multi-language)</option>
               <option value="windows-sr">Windows Speech Recognition</option>
             </select>
           </div>
         </div>
 
+        {#if settings.sttBackend === 'deepgram'}
+          <div class="hub-s-row">
+            <div class="label-wrap">
+              <div class="l-name">Deepgram API Key</div>
+              <div class="l-desc">Key khusus STT, terpisah dari API Key Obrolan AI. Disimpan lokal (SQLite). Kosong = pakai API Key Obrolan AI.</div>
+            </div>
+            <div class="field-wrap">
+              <input class="hub-input" type="password" autocomplete="off" bind:value={settings.sttApiKey} placeholder="Deepgram API key" />
+            </div>
+          </div>
+        {/if}
+
         {#if settings.sttBackend !== 'windows-sr'}
           <div class="hub-s-row">
             <div class="label-wrap">
               <div class="l-name">Bahasa STT</div>
-              <div class="l-desc">Bahasa yang dikenali Whisper. <strong>Auto-detect</strong> cocok untuk percakapan campuran (misal Japan-English).</div>
+              <div class="l-desc">Bahasa yang dikenali STT. <strong>Auto-detect</strong> cocok untuk percakapan campuran (Deepgram: mode <code>multi</code>).</div>
             </div>
             <div class="field-wrap">
               <select class="hub-input" bind:value={settings.sttLanguage}>

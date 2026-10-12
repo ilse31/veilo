@@ -26,8 +26,11 @@ export const settings = $state({
   copilotContextS:      90,
   copilotAutoDismissS:  25,
   copilotMinIntervalS:  4,
-  sttBackend:           'whisper-cloud' as 'whisper-cloud' | 'whisper-local' | 'windows-sr',
+  sttBackend:           'whisper-cloud' as 'whisper-cloud' | 'whisper-local' | 'deepgram' | 'windows-sr',
   whisperModel:         'whisper-1',
   whisperLocalUrl:      'http://localhost:8080',
+  sttApiKey:            '',   // Deepgram key (separate from AI chat apiKey)
+  audioSource:          'system' as 'system' | 'microphone' | 'both',
+  micDevice:            '',   // '' = system default input
   sttLanguage:          '',   // '' = auto-detect; 'en', 'ja', 'id', etc.
 })
