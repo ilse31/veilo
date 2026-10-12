@@ -1,10 +1,18 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { listen } from '@tauri-apps/api/event'
+  import { marked } from 'marked'
+  import DOMPurify from 'dompurify'
   import {
     copilotSessionStatus, copilotStopSession, copilotListSessions, copilotSummarizeSession,
     type SessionStatus, type CopilotSessionRow,
   } from '$lib/copilot/api'
+
+  marked.setOptions({ breaks: true, gfm: true })
+
+  function renderMd(text: string): string {
+    return DOMPurify.sanitize(marked.parse(text) as string)
+  }
 
   interface Props {
     onStartClick: () => void
@@ -112,7 +120,7 @@
               {/if}
             </div>
             {#if h.summary}
-              <p class="summary">{h.summary}</p>
+              <div class="summary md">{@html renderMd(h.summary)}</div>
             {:else if summarizeError[h.id]}
               <p class="summary-error">{summarizeError[h.id]}</p>
             {/if}
@@ -144,8 +152,36 @@
   .summary {
     margin: 8px 0 0; padding: 10px 12px;
     background: var(--bg-side); border-radius: 8px;
-    font-size: 12.5px; line-height: 1.5; color: var(--text);
-    white-space: pre-wrap;
+    font-size: 12.5px; line-height: 1.55; color: var(--text);
+    user-select: text;
   }
+  .md > :global(:first-child) { margin-top: 0; }
+  .md > :global(:last-child)  { margin-bottom: 0; }
+  .md :global(h1), .md :global(h2), .md :global(h3), .md :global(h4) {
+    margin: 14px 0 6px; font-weight: 600; line-height: 1.3;
+  }
+  .md :global(h1) { font-size: 15px; }
+  .md :global(h2) { font-size: 14px; }
+  .md :global(h3) { font-size: 13px; color: var(--text-soft); }
+  .md :global(p)  { margin: 0 0 8px; }
+  .md :global(ul), .md :global(ol) { margin: 0 0 8px; padding-left: 20px; }
+  .md :global(li) { margin-bottom: 4px; }
+  .md :global(strong) { font-weight: 600; }
+  .md :global(hr) { border: none; border-top: 1px solid var(--border); margin: 12px 0; }
+  .md :global(code) {
+    background: rgba(127,127,127,0.18); padding: 1px 5px; border-radius: 4px;
+    font-family: ui-monospace, "SF Mono", Consolas, monospace; font-size: 11.5px;
+  }
+  .md :global(pre) {
+    background: rgba(127,127,127,0.12); padding: 8px 10px; border-radius: 6px;
+    overflow-x: auto; margin: 0 0 8px;
+  }
+  .md :global(pre code) { background: none; padding: 0; }
+  .md :global(blockquote) {
+    margin: 0 0 8px; padding-left: 10px; border-left: 3px solid var(--border);
+    color: var(--text-soft);
+  }
+  .md :global(table) { border-collapse: collapse; margin: 0 0 8px; font-size: 12px; }
+  .md :global(th), .md :global(td) { border: 1px solid var(--border); padding: 4px 8px; }
   .summary-error { margin: 6px 0 0; font-size: 11.5px; color: var(--red, #e74c3c); }
 </style>
