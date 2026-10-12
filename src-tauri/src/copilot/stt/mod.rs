@@ -1,3 +1,4 @@
+pub mod deepgram;
 pub mod whisper_cloud;
 pub mod windows_sr;
 

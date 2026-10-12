@@ -54,13 +54,15 @@ pub struct WhisperCloudStt {
     pub api_key:   String,
     pub model:     String,
     pub language:  Option<String>,
+    /// Transcript source label stamped on emitted chunks.
+    pub source:    String,
     join_handle:   Arc<AsyncMutex<Option<tokio::task::JoinHandle<()>>>>,
 }
 
 impl WhisperCloudStt {
     pub fn new(api_url: String, api_key: String, model: String) -> Self {
         Self {
-            api_url, api_key, model, language: None,
+            api_url, api_key, model, language: None, source: "main".into(),
             join_handle: Arc::new(AsyncMutex::new(None)),
         }
     }
@@ -77,6 +79,7 @@ impl SttBackend for WhisperCloudStt {
         let api_key = self.api_key.clone();
         let model   = self.model.clone();
         let language = self.language.clone();
+        let source = self.source.clone();
         let handle_slot = self.join_handle.clone();
 
         let task = tokio::spawn(async move {
@@ -148,6 +151,7 @@ impl SttBackend for WhisperCloudStt {
                                                 end_ms:   end,
                                                 text:     trimmed.into(),
                                                 is_final: true,
+                                                source:   source.clone(),
                                             },
                                         );
                                     }

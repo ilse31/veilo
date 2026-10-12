@@ -117,6 +117,7 @@ fn run_win_sr(app: &AppHandle, stop: &AtomicBool, session_id: i64) -> Result<(),
                                         end_ms,
                                         text: trimmed.to_string(),
                                         is_final: true,
+                                        source: "main".into(),
                                     },
                                 );
                             }

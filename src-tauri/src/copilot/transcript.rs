@@ -8,7 +8,14 @@ pub struct TranscriptChunk {
     pub end_ms:     u64,
     pub text:       String,
     pub is_final:   bool,
+    /// Which audio stream produced this chunk: "main" (single-source session),
+    /// "remote" (system audio when mic is also on) or "self" (your microphone
+    /// in a both-sources session; shown in the UI but never sent to the AI).
+    #[serde(default = "default_source")]
+    pub source:     String,
 }
+
+fn default_source() -> String { "main".into() }
 
 pub struct TranscriptBuffer {
     chunks:    VecDeque<TranscriptChunk>,
@@ -55,6 +62,25 @@ impl TranscriptBuffer {
         self.chunks.iter().skip(self.trigger_mark).collect()
     }
 
+    /// Pop the oldest chunk not yet answered, as `(question, context)`.
+    /// `context` is the final text spoken in the `context_s` seconds before it,
+    /// so each utterance is answered on its own with the conversation as backdrop.
+    pub fn take_next_untriggered(&mut self, context_s: u64) -> Option<(String, String)> {
+        let idx = self.trigger_mark;
+        let q = self.chunks.get(idx)?.clone();
+        self.trigger_mark += 1;
+        let cutoff = q.end_ms.saturating_sub(context_s * 1000);
+        let context = self
+            .chunks
+            .iter()
+            .take(idx)
+            .filter(|c| c.is_final && c.end_ms > cutoff)
+            .map(|c| c.text.as_str())
+            .collect::<Vec<_>>()
+            .join(" ");
+        Some((q.text, context))
+    }
+
     pub fn mark_triggered(&mut self) {
         self.trigger_mark = self.chunks.len();
     }
@@ -72,6 +98,7 @@ mod tests {
     fn chunk(start_ms: u64, end_ms: u64, text: &str) -> TranscriptChunk {
         TranscriptChunk {
             session_id: 1, start_ms, end_ms, text: text.into(), is_final: true,
+            source: "main".into(),
         }
     }
 
@@ -119,6 +146,30 @@ mod tests {
         assert_eq!(new.len(), 2);
         assert_eq!(new[0].text, "b");
         assert_eq!(new[1].text, "c");
+    }
+
+    #[test]
+    fn take_next_untriggered_yields_one_question_at_a_time_with_prior_context() {
+        let mut b = TranscriptBuffer::new(60);
+        b.append(chunk(0, 1000, "pertanyaan satu"));
+        b.append(chunk(2000, 3000, "pertanyaan dua"));
+        assert_eq!(
+            b.take_next_untriggered(90),
+            Some(("pertanyaan satu".to_string(), String::new()))
+        );
+        assert_eq!(
+            b.take_next_untriggered(90),
+            Some(("pertanyaan dua".to_string(), "pertanyaan satu".to_string()))
+        );
+        assert_eq!(b.take_next_untriggered(90), None);
+        assert!(b.since_last_trigger().is_empty());
+    }
+
+    #[test]
+    fn chunk_without_source_deserializes_as_main() {
+        let j = r#"{"session_id":1,"start_ms":0,"end_ms":10,"text":"hi","is_final":true}"#;
+        let c: TranscriptChunk = serde_json::from_str(j).unwrap();
+        assert_eq!(c.source, "main");
     }
 
     #[test]
