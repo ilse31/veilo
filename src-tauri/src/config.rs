@@ -24,6 +24,16 @@ pub struct Config {
     pub copilot_min_interval_s: u64,
     #[serde(default)]
     pub stt_language: String,
+    /// "system" (loopback of what you hear) or "microphone".
+    #[serde(default = "default_audio_source")]
+    pub audio_source: String,
+    /// Input device name for microphone capture; empty = system default.
+    #[serde(default)]
+    pub mic_device: String,
+    /// Always show transcripts and answers in Indonesian, whatever language
+    /// the other party speaks (translated by the AI endpoint).
+    #[serde(default)]
+    pub force_indonesian: bool,
 }
 
 impl Default for Config {
@@ -42,11 +52,15 @@ impl Default for Config {
             copilot_auto_dismiss_s: 25,
             copilot_min_interval_s: 4,
             stt_language:           String::new(),
+            audio_source:           "system".into(),
+            mic_device:             String::new(),
+            force_indonesian:       false,
         }
     }
 }
 
 fn default_stt_backend()            -> String { "whisper-cloud".into() }
+fn default_audio_source()           -> String { "system".into() }
 fn default_whisper_model()          -> String { "whisper-1".into() }
 fn default_whisper_local_url()      -> String { "http://localhost:8080".into() }
 fn default_copilot_context_s()      -> u64    { 90 }
@@ -107,6 +121,9 @@ mod tests {
             copilot_auto_dismiss_s: 25,
             copilot_min_interval_s: 4,
             stt_language: String::new(),
+            audio_source: "microphone".into(),
+            mic_device: "USB Mic".into(),
+            force_indonesian: true,
         };
         write_config(&dir.path().to_path_buf(), &config).unwrap();
         let loaded = read_config(&dir.path().to_path_buf());

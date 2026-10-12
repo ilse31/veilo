@@ -219,8 +219,8 @@ pub fn run() {
                 .always_on_top(true)
                 .content_protected(true)
                 .skip_taskbar(true)
-                .inner_size(380.0, 340.0)
-                .min_inner_size(320.0, 200.0)
+                .inner_size(420.0, 520.0)
+                .min_inner_size(320.0, 240.0)
                 .resizable(true)
                 .transparent(true)
                 .visible(false)
@@ -391,6 +391,8 @@ pub fn run() {
             commands::stop_ghost_typing_cmd,
             commands::copilot_get_presets,
             commands::copilot_session_status,
+            commands::copilot_list_input_devices,
+            commands::copilot_set_force_indonesian,
             commands::copilot_start_session,
             commands::copilot_stop_session,
             commands::copilot_force_regenerate,

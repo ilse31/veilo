@@ -529,8 +529,74 @@ pub fn copilot_delete_preset(
 }
 
 #[tauri::command]
+pub fn copilot_list_input_devices() -> Vec<String> {
+    crate::copilot::audio::list_input_devices()
+}
+
+#[tauri::command]
 pub fn copilot_session_status(state: tauri::State<CopilotState>) -> Option<SessionStatus> {
     crate::copilot::session::current_status(&state)
+}
+
+/// Build the configured STT backend, stamping `source` on its transcript chunks.
+fn build_stt_backend(
+    app_cfg: &crate::config::Config,
+    db: &crate::db::Db,
+    api_url: &str,
+    api_key: &str,
+    source: &str,
+) -> Box<dyn SttBackend> {
+    let language = stt_language_opt(&app_cfg.stt_language);
+    match app_cfg.stt_backend.as_str() {
+        "whisper-local" => {
+            let url = if app_cfg.whisper_local_url.is_empty() {
+                "http://localhost:8080".to_string()
+            } else {
+                app_cfg.whisper_local_url.clone()
+            };
+            let model = if app_cfg.whisper_model.is_empty() {
+                "whisper-1".to_string()
+            } else {
+                app_cfg.whisper_model.clone()
+            };
+            let mut w = WhisperCloudStt::new(url, api_key.to_string(), model);
+            w.language = language;
+            w.source = source.to_string();
+            Box::new(w)
+        }
+        "deepgram" => {
+            // Dedicated STT key; falls back to the shared AI key when unset.
+            let stt_key = crate::db::get_value(db, "stt_api_key")
+                .ok()
+                .flatten()
+                .filter(|k| !k.trim().is_empty());
+            // Diagnostic only: source + length, never the key itself.
+            match &stt_key {
+                Some(k) => eprintln!("[deepgram:{source}] dedicated STT key (len={})", k.trim().len()),
+                None => eprintln!(
+                    "[deepgram:{source}] STT key empty -> falling back to AI chat key (len={}); \
+                     isi 'Deepgram API Key' lalu Simpan",
+                    api_key.trim().len()
+                ),
+            }
+            let key = stt_key.unwrap_or_else(|| api_key.to_string());
+            // Empty language means "multi" (code-switching) in DeepgramStt.
+            let mut d = crate::copilot::stt::deepgram::DeepgramStt::new(
+                key, app_cfg.whisper_model.clone(), language,
+            );
+            d.source = source.to_string();
+            Box::new(d)
+        }
+        "windows-sr" => Box::new(crate::copilot::stt::windows_sr::WindowsSrStt::new()),
+        _ => {
+            let url = if api_url.is_empty() { "https://api.openai.com".to_string() } else { api_url.to_string() };
+            let model = if app_cfg.whisper_model.is_empty() { "whisper-1".to_string() } else { app_cfg.whisper_model.clone() };
+            let mut w = WhisperCloudStt::new(url, api_key.to_string(), model);
+            w.language = language;
+            w.source = source.to_string();
+            Box::new(w)
+        }
+    }
 }
 
 #[tauri::command]
@@ -552,6 +618,17 @@ pub async fn copilot_start_session(
             return Err("Session already running".into());
         }
     }
+    let api_url_trimmed = api_url.trim();
+    // Empty is allowed (backends fall back to their default); a non-empty
+    // non-HTTP URL (e.g. a pasted wss:// Deepgram URL) can never work.
+    if !api_url_trimmed.is_empty()
+        && !(api_url_trimmed.starts_with("http://") || api_url_trimmed.starts_with("https://"))
+    {
+        return Err(format!(
+            "URL Endpoint AI tidak valid ({api_url_trimmed:?}): harus diawali http:// atau https://. \
+             Periksa kartu 'Koneksi AI Lokal' (bukan URL Deepgram)."
+        ));
+    }
     let preset = match find_preset(&preset_id) {
         Some(p) => p,
         None => crate::db::find_copilot_preset(&db, &preset_id)
@@ -566,37 +643,49 @@ pub async fn copilot_start_session(
         &db, &preset_id, context_window_s as i64, save,
     ).map_err(|e| e.to_string())?;
 
-    let mut audio = crate::copilot::audio::start_loopback()?;
-    let audio_rx = audio.take_rx().ok_or_else(|| "audio rx already taken".to_string())?;
+    let mic_device = (!app_cfg.mic_device.is_empty()).then(|| app_cfg.mic_device.clone());
+    let both = app_cfg.audio_source == "both";
+    if both && app_cfg.stt_backend == "windows-sr" {
+        return Err("Mode 'Keduanya' tidak didukung untuk Windows Speech Recognition; pilih Deepgram atau Whisper.".into());
+    }
 
-    let mut stt: Box<dyn SttBackend> = match app_cfg.stt_backend.as_str() {
-        "whisper-local" => {
-            let local_url = if app_cfg.whisper_local_url.is_empty() {
-                "http://localhost:8080".to_string()
-            } else {
-                app_cfg.whisper_local_url.clone()
-            };
-            let model_name = if app_cfg.whisper_model.is_empty() {
-                "whisper-1".to_string()
-            } else {
-                app_cfg.whisper_model.clone()
-            };
-            let mut whisper_stt = WhisperCloudStt::new(local_url, api_key.clone(), model_name);
-            whisper_stt.language = stt_language_opt(&app_cfg.stt_language);
-            Box::new(whisper_stt)
-        }
-        "windows-sr" => {
-            Box::new(crate::copilot::stt::windows_sr::WindowsSrStt::new())
-        }
-        _ => {
-            let cloud_url = if api_url.is_empty() { "https://api.openai.com".to_string() } else { api_url.clone() };
-            let model_name = if app_cfg.whisper_model.is_empty() { "whisper-1".to_string() } else { app_cfg.whisper_model.clone() };
-            let mut whisper_stt = WhisperCloudStt::new(cloud_url, api_key.clone(), model_name);
-            whisper_stt.language = stt_language_opt(&app_cfg.stt_language);
-            Box::new(whisper_stt)
-        }
+    // Primary stream (drives the AI): microphone only, or system audio.
+    let mut audio = match app_cfg.audio_source.as_str() {
+        "microphone" => crate::copilot::audio::start_microphone(mic_device.clone())?,
+        _ => crate::copilot::audio::start_loopback()?,
     };
-    stt.start(sid, audio_rx, app.clone())?;
+    let audio_rx = audio.take_rx().ok_or_else(|| "audio rx already taken".to_string())?;
+    let primary_source = if both { "remote" } else { "main" };
+    let mut stt = build_stt_backend(&app_cfg, &db, &api_url, &api_key, primary_source);
+    if let Err(e) = stt.start(sid, audio_rx, app.clone()) {
+        audio.stop();
+        return Err(e);
+    }
+
+    // Secondary stream: your own microphone, transcribed but never sent to the AI.
+    let (mut mic_audio, mut mic_stt) = (None, None);
+    if both {
+        let started = (|| -> Result<_, String> {
+            let mut m = crate::copilot::audio::start_microphone(mic_device)?;
+            let rx = m.take_rx().ok_or_else(|| "mic rx already taken".to_string())?;
+            let mut s = build_stt_backend(&app_cfg, &db, &api_url, &api_key, "self");
+            if let Err(e) = s.start(sid, rx, app.clone()) {
+                m.stop();
+                return Err(e);
+            }
+            Ok((m, s))
+        })();
+        match started {
+            Ok((m, s)) => { mic_audio = Some(m); mic_stt = Some(s); }
+            Err(e) => {
+                audio.stop();
+                stt.stop();
+                let _ = crate::db::end_copilot_session(&db, sid);
+                let _ = crate::db::purge_copilot_session_data(&db, sid);
+                return Err(format!("Mikrofon gagal dimulai: {e}"));
+            }
+        }
+    }
 
     let mut orch_cfg = crate::copilot::session::build_orchestrator_config(
         sid, preset.clone(), context_window_s, save, custom_context, &app_cfg,
@@ -605,6 +694,9 @@ pub async fn copilot_start_session(
     orch_cfg.api_key = api_key;
     orch_cfg.model   = model;
     let orchestrator = Arc::new(Orchestrator::new(orch_cfg));
+    orchestrator
+        .force_indonesian
+        .store(app_cfg.force_indonesian, std::sync::atomic::Ordering::Relaxed);
     let (orchestrator_handle, listener_id) = orchestrator.clone().start(app.clone());
 
     {
@@ -615,6 +707,8 @@ pub async fn copilot_start_session(
         if guard.is_some() {
             audio.stop();
             stt.stop();
+            if let Some(m) = &mic_audio { m.stop(); }
+            if let Some(m) = mic_stt.take() { m.stop(); }
             orchestrator_handle.abort();
             app.unlisten(listener_id);
             let _ = crate::db::end_copilot_session(&db, sid);
@@ -628,6 +722,8 @@ pub async fn copilot_start_session(
             save,
             audio,
             stt,
+            mic_audio,
+            mic_stt,
             orchestrator,
             orchestrator_handle,
             listener_id,
@@ -660,6 +756,8 @@ pub async fn copilot_stop_session(
 
     session.audio.stop();
     session.stt.stop();
+    if let Some(m) = &session.mic_audio { m.stop(); }
+    if let Some(m) = session.mic_stt { m.stop(); }
     session.orchestrator_handle.abort();
     app.unlisten(session.listener_id);
 
@@ -691,6 +789,28 @@ pub fn copilot_list_sessions(
     db: tauri::State<crate::db::Db>,
 ) -> Result<Vec<crate::db::CopilotSessionRow>, String> {
     crate::db::list_copilot_sessions(&db).map_err(|e| e.to_string())
+}
+
+/// Toggle "always Indonesian" live and persist it. Takes effect on the next
+/// utterance of the running session (if any).
+#[tauri::command]
+pub fn copilot_set_force_indonesian(
+    app: AppHandle,
+    state: tauri::State<'_, CopilotState>,
+    enabled: bool,
+) -> Result<(), String> {
+    if let Ok(guard) = state.0.lock() {
+        if let Some(session) = guard.as_ref() {
+            session
+                .orchestrator
+                .force_indonesian
+                .store(enabled, std::sync::atomic::Ordering::Relaxed);
+        }
+    }
+    let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let mut cfg = crate::config::read_config(&dir);
+    cfg.force_indonesian = enabled;
+    crate::config::write_config(&dir, &cfg)
 }
 
 #[tauri::command]

@@ -15,6 +15,9 @@ pub struct ActiveSession {
     pub save:                bool,
     pub audio:               AudioCapture,
     pub stt:                 Box<dyn SttBackend>,
+    /// Second stream (your microphone) when `audio_source` is "both".
+    pub mic_audio:           Option<AudioCapture>,
+    pub mic_stt:             Option<Box<dyn SttBackend>>,
     pub orchestrator:        Arc<Orchestrator>,
     pub orchestrator_handle: tokio::task::JoinHandle<()>,
     pub listener_id:         tauri::EventId,

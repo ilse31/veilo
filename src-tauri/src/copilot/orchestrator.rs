@@ -3,6 +3,7 @@
 //! and `copilot-suggest-done` events.
 
 use serde::Serialize;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Listener, Manager};
@@ -15,6 +16,7 @@ use crate::copilot::transcript::{TranscriptBuffer, TranscriptChunk};
 #[derive(Serialize, Clone)]
 struct SuggestDelta {
     id: String,
+    question: String,
     delta: String,
     format: ResponseFormat,
 }
@@ -22,7 +24,36 @@ struct SuggestDelta {
 #[derive(Serialize, Clone)]
 struct SuggestDone {
     id: String,
+    question: String,
     full_text: String,
+}
+
+#[derive(Serialize, Clone)]
+struct TranscriptTranslated {
+    session_id: i64,
+    source:     String,
+    start_ms:   u64,
+    original:   String,
+    text:       String,
+}
+
+/// Messages asking the model to translate one utterance into Indonesian.
+fn translation_messages(text: &str) -> Vec<serde_json::Value> {
+    vec![
+        serde_json::json!({
+            "role": "system",
+            "content": "Kamu penerjemah. Terjemahkan teks pengguna ke Bahasa Indonesia yang natural. \
+                        Jika teks sudah dalam Bahasa Indonesia, kembalikan persis apa adanya. \
+                        Keluarkan HANYA hasil terjemahan, tanpa penjelasan atau tanda kutip.",
+        }),
+        serde_json::json!({ "role": "user", "content": text }),
+    ]
+}
+
+/// Extract `choices[0].message.content` from a non-streaming chat response.
+fn parse_chat_content(json: &serde_json::Value) -> Option<String> {
+    let t = json["choices"][0]["message"]["content"].as_str()?.trim();
+    (!t.is_empty()).then(|| t.to_string())
 }
 
 pub struct OrchestratorConfig {
@@ -44,6 +75,11 @@ pub struct Orchestrator {
     pub last_trigger: Arc<Mutex<Option<Instant>>>,
     pub last_chunk_at: Arc<Mutex<Option<Instant>>>,
     pub custom_instruction: Arc<Mutex<String>>,
+    /// When set, transcripts are translated to Indonesian and answers are
+    /// always written in Indonesian. Togglable live from the card.
+    pub force_indonesian: Arc<AtomicBool>,
+    /// `(question, context)` of the most recent trigger, for regenerate.
+    last_question: Arc<Mutex<Option<(String, String)>>>,
     force_tx: mpsc::UnboundedSender<()>,
     force_rx: Arc<Mutex<Option<mpsc::UnboundedReceiver<()>>>>,
 }
@@ -58,6 +94,8 @@ impl Orchestrator {
             last_trigger: Arc::new(Mutex::new(None)),
             last_chunk_at: Arc::new(Mutex::new(None)),
             custom_instruction: Arc::new(Mutex::new(String::new())),
+            force_indonesian: Arc::new(AtomicBool::new(false)),
+            last_question: Arc::new(Mutex::new(None)),
             force_tx,
             force_rx: Arc::new(Mutex::new(Some(force_rx))),
         }
@@ -80,7 +118,9 @@ impl Orchestrator {
                 let me = me.clone();
                 move |event| {
                     if let Ok(chunk) = serde_json::from_str::<TranscriptChunk>(event.payload()) {
-                        if chunk.session_id == me.config.session_id {
+                        // Your own microphone (both-sources mode) is for display
+                        // only; only the other party's audio drives the AI.
+                        if chunk.session_id == me.config.session_id && chunk.source != "self" {
                             if me.config.save_transcript {
                                 if let Some(db) = app_for_listener.try_state::<crate::db::Db>() {
                                     if let Err(e) = crate::db::insert_copilot_transcript(
@@ -89,6 +129,14 @@ impl Orchestrator {
                                         eprintln!("[orchestrator] failed to persist transcript chunk: {e}");
                                     }
                                 }
+                            }
+                            if me.force_indonesian.load(Ordering::Relaxed) {
+                                let me2 = me.clone();
+                                let app2 = app_for_listener.clone();
+                                let c = chunk.clone();
+                                tauri::async_runtime::spawn(async move {
+                                    me2.translate_and_emit(&app2, c).await;
+                                });
                             }
                             if let Ok(mut buf_guard) = me.buffer.lock() {
                                 buf_guard.append(chunk);
@@ -124,10 +172,18 @@ impl Orchestrator {
                         };
                         if elapsed_since_chunk < Duration::from_millis(me.config.debounce_ms) { continue; }
                         if me.is_rate_limited() { continue; }
-                        me.trigger(&app_clone).await;
+                        // One utterance = one question = one answer.
+                        let next = me.buffer.lock().unwrap()
+                            .take_next_untriggered(me.config.context_window_s);
+                        if let Some((question, context)) = next {
+                            me.trigger(&app_clone, question, context).await;
+                        }
                     }
                     Some(()) = force_rx.recv() => {
-                        me.trigger(&app_clone).await;
+                        let last = me.last_question.lock().unwrap().clone();
+                        if let Some((question, context)) = last {
+                            me.trigger(&app_clone, question, context).await;
+                        }
                     }
                 }
             }
@@ -144,7 +200,7 @@ impl Orchestrator {
         }
     }
 
-    pub fn build_messages(&self, context_text: &str) -> Vec<serde_json::Value> {
+    pub fn build_messages(&self, context_text: &str, question: &str) -> Vec<serde_json::Value> {
         let mut system_prompt = self.config.preset.system_prompt.clone();
         if !self.config.custom_context.is_empty() {
             system_prompt.push_str(&format!("\n\nUser Background Context (e.g. CV / Interview Info):\n{}", self.config.custom_context));
@@ -154,6 +210,12 @@ impl Orchestrator {
                 system_prompt.push_str(&format!("\n\nCustom Real-time Instruction:\n{}", *inst_lock));
             }
         }
+        if self.force_indonesian.load(Ordering::Relaxed) {
+            system_prompt.push_str(
+                "\n\nBahasa: Pengguna berbahasa Indonesia, tetapi lawan bicara mungkin memakai bahasa lain. \
+                 Pahami ucapan dalam bahasa apa pun, namun SELALU tulis jawabanmu dalam Bahasa Indonesia.",
+            );
+        }
         vec![
             serde_json::json!({
                 "role": "system",
@@ -162,20 +224,67 @@ impl Orchestrator {
             serde_json::json!({
                 "role": "user",
                 "content": format!(
-                    "Context terbaru (last {}s of transcript):\n\n{}\n\nBerikan saran/jawaban singkat:",
-                    self.config.context_window_s, context_text,
+                    "Konteks percakapan sebelumnya (last {}s, hanya sebagai latar):\n{}\n\n\
+                     Ucapan/pertanyaan terbaru:\n{}\n\n\
+                     Jawab HANYA ucapan/pertanyaan terbaru ini secara singkat. \
+                     Jangan merangkum atau menjawab ulang pertanyaan sebelumnya:",
+                    self.config.context_window_s,
+                    if context_text.trim().is_empty() { "(belum ada)" } else { context_text },
+                    question,
                 ),
             }),
         ]
     }
 
-    async fn trigger(&self, app: &AppHandle) {
-        let context = self.buffer.lock().unwrap().window(self.config.context_window_s);
-        if context.trim().is_empty() { return; }
-        self.buffer.lock().unwrap().mark_triggered();
-        *self.last_trigger.lock().unwrap() = Some(Instant::now());
+    /// Translate one finalized utterance to Indonesian and emit
+    /// `copilot-transcript-translated` so the UI can show it.
+    async fn translate_and_emit(&self, app: &AppHandle, chunk: TranscriptChunk) {
+        let url = format!(
+            "{}/v1/chat/completions",
+            self.config.api_url.trim_end_matches('/')
+        );
+        let Ok(client) = reqwest::Client::builder()
+            .timeout(Duration::from_secs(20))
+            .build()
+        else {
+            return;
+        };
+        let body = serde_json::json!({
+            "model": self.config.model,
+            "messages": translation_messages(&chunk.text),
+            "stream": false,
+            "temperature": 0,
+        });
+        match client
+            .post(url)
+            .bearer_auth(&self.config.api_key)
+            .json(&body)
+            .send()
+            .await
+        {
+            Ok(r) if r.status().is_success() => {
+                let Ok(json) = r.json::<serde_json::Value>().await else { return };
+                if let Some(text) = parse_chat_content(&json) {
+                    let _ = app.emit("copilot-transcript-translated", TranscriptTranslated {
+                        session_id: chunk.session_id,
+                        source:     chunk.source,
+                        start_ms:   chunk.start_ms,
+                        original:   chunk.text,
+                        text,
+                    });
+                }
+            }
+            Ok(r) => eprintln!("[orchestrator] translate HTTP {}", r.status()),
+            Err(e) => eprintln!("[orchestrator] translate error: {e}"),
+        }
+    }
 
-        let messages = self.build_messages(&context);
+    async fn trigger(&self, app: &AppHandle, question: String, context: String) {
+        if question.trim().is_empty() { return; }
+        *self.last_trigger.lock().unwrap() = Some(Instant::now());
+        *self.last_question.lock().unwrap() = Some((question.clone(), context.clone()));
+
+        let messages = self.build_messages(&context, &question);
         let id = uuid::Uuid::new_v4().to_string();
         let format = self.config.preset.response_format;
         let api_url = self.config.api_url.trim_end_matches('/').to_string();
@@ -185,7 +294,7 @@ impl Orchestrator {
         let id_inner = id.clone();
         let session_id = self.config.session_id;
         let save = self.config.save_transcript;
-        let context_for_db = context.clone();
+        let question_for_db = question.clone();
 
         tokio::spawn(async move {
             let client = reqwest::Client::builder()
@@ -229,8 +338,9 @@ impl Orchestrator {
                             if let Some(d) = j["choices"][0]["delta"]["content"].as_str() {
                                 full.push_str(d);
                                 let _ = app_inner.emit("copilot-suggest-delta", SuggestDelta {
-                                    id:    id_inner.clone(),
-                                    delta: d.into(),
+                                    id:       id_inner.clone(),
+                                    question: question.clone(),
+                                    delta:    d.into(),
                                     format,
                                 });
                             }
@@ -243,6 +353,7 @@ impl Orchestrator {
 
             let _ = app_inner.emit("copilot-suggest-done", SuggestDone {
                 id: id_inner,
+                question: question.clone(),
                 full_text: full.clone(),
             });
 
@@ -250,7 +361,7 @@ impl Orchestrator {
                 if let Some(db) = app_inner.try_state::<crate::db::Db>() {
                     let fmt = format!("{:?}", format);
                     if let Err(e) = crate::db::insert_copilot_suggestion(
-                        &db, session_id, &context_for_db, &full, &fmt,
+                        &db, session_id, &question_for_db, &full, &fmt,
                     ) {
                         eprintln!("[orchestrator] db save failed: {e}");
                     }
@@ -297,11 +408,32 @@ mod tests {
     #[test]
     fn build_messages_includes_system_and_user() {
         let o = Orchestrator::new(cfg());
-        let messages = o.build_messages("hello world");
+        let messages = o.build_messages("earlier talk", "hello world");
         assert_eq!(messages.len(), 2);
         assert_eq!(messages[0]["role"], "system");
         assert_eq!(messages[1]["role"], "user");
-        assert!(messages[1]["content"].as_str().unwrap().contains("hello world"));
+        let user = messages[1]["content"].as_str().unwrap();
+        assert!(user.contains("hello world"));
+        assert!(user.contains("earlier talk"));
+    }
+
+    #[test]
+    fn force_indonesian_adds_language_rule_to_system_prompt() {
+        let o = Orchestrator::new(cfg());
+        let off = o.build_messages("", "q");
+        assert!(!off[0]["content"].as_str().unwrap().contains("Bahasa Indonesia"));
+        o.force_indonesian.store(true, Ordering::Relaxed);
+        let on = o.build_messages("", "q");
+        assert!(on[0]["content"].as_str().unwrap().contains("SELALU tulis jawabanmu dalam Bahasa Indonesia"));
+    }
+
+    #[test]
+    fn translation_helpers() {
+        let m = translation_messages("こんにちは");
+        assert_eq!(m[1]["content"], "こんにちは");
+        let ok = serde_json::json!({"choices":[{"message":{"content":"  Halo \n"}}]});
+        assert_eq!(parse_chat_content(&ok), Some("Halo".to_string()));
+        assert_eq!(parse_chat_content(&serde_json::json!({})), None);
     }
 
     #[test]
