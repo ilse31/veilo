@@ -367,23 +367,27 @@ pub fn run() {
 
             // Screen context: read the monitor under the cursor (Ctrl+Alt+S).
             let handle7 = app.handle().clone();
-            app.handle()
+            if let Err(e) = app.handle()
                 .global_shortcut()
                 .on_shortcut("Ctrl+Alt+S", move |_app, _shortcut, event| {
                     if event.state == ShortcutState::Pressed {
                         crate::screen_ask::trigger_cursor(handle7.clone());
                     }
-                })?;
+                }) {
+                eprintln!("[screen] shortcut Ctrl+Alt+S unavailable: {e}");
+            }
 
             // Screen context: cycle monitors, capture after a short pause (Ctrl+Alt+M).
             let handle8 = app.handle().clone();
-            app.handle()
+            if let Err(e) = app.handle()
                 .global_shortcut()
                 .on_shortcut("Ctrl+Alt+M", move |_app, _shortcut, event| {
                     if event.state == ShortcutState::Pressed {
                         crate::screen_ask::trigger_cycle(handle8.clone());
                     }
-                })?;
+                }) {
+                eprintln!("[screen] shortcut Ctrl+Alt+M unavailable: {e}");
+            }
 
             Ok(())
         })

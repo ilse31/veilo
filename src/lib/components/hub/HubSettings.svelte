@@ -2,7 +2,7 @@
   import { getCurrentWindow } from '@tauri-apps/api/window'
   import { getConfig, listInputDevices, saveConfig, setAllContentProtected, setProfileValue, testAiConnection, type ModelInfo } from '$lib/tauri'
   import { settings } from '$lib/stores/settings.svelte'
-  import { supportsImages, toggleOverride } from '$lib/vision'
+  import { supportsImages, toggleOverride, resolveModelVision } from '$lib/vision'
   import { setServiceUrl } from './webviewManager'
   import HotkeyRecorder from '$lib/components/HotkeyRecorder.svelte'
   import {
@@ -106,6 +106,12 @@
       await setProfileValue('api_url', settings.apiUrl)
       await setProfileValue('model', settings.model)
       await setProfileValue('vision_overrides', JSON.stringify(settings.visionOverrides))
+      const mv = resolveModelVision(models, settings.model, settings.visionOverrides,
+        { flag: settings.modelVision, forModel: settings.modelVisionFor })
+      settings.modelVision = mv.flag
+      settings.modelVisionFor = mv.forModel
+      await setProfileValue('model_vision', mv.flag ? '1' : '0')
+      await setProfileValue('model_vision_for', mv.forModel)
       await setProfileValue('screen_include_transcript', settings.screenIncludeTranscript ? '1' : '0')
 
       // Persist to disk — merge onto a fresh config so fields this page does

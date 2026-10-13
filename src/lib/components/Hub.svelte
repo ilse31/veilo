@@ -101,6 +101,8 @@
       const model = await getProfileValue('model')
       if (model) settings.model = model
       settings.visionOverrides = parseOverrides(await getProfileValue('vision_overrides'))
+      settings.modelVision = (await getProfileValue('model_vision')) === '1'
+      settings.modelVisionFor = (await getProfileValue('model_vision_for')) ?? ''
       settings.screenIncludeTranscript = (await getProfileValue('screen_include_transcript')) !== '0'
     } catch (e) {
       console.error('Failed to load API credentials', e)

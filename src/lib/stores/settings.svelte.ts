@@ -13,6 +13,8 @@ export const settings = $state({
   model:   '',
   visionOverrides:          [] as string[],  // model ids the user marked "supports images"
   screenIncludeTranscript:  true,
+  modelVision:              false,  // provider-reported image support of `modelVisionFor`
+  modelVisionFor:           '',
   // Appearance
   opacity:          90,
   alwaysOnTop:      true,

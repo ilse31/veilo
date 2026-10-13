@@ -22,12 +22,44 @@ pub struct ScreenState {
     pub selection: Mutex<Option<usize>>,
 }
 
-pub fn vision_gate(model: &str, overrides: &[String]) -> Result<(), String> {
+impl ScreenState {
+    /// Cancel a pending cycle capture (shortcut M) and forget the chosen monitor.
+    pub fn cancel_cycle(&self) {
+        self.cycle_ticket.fetch_add(1, Ordering::SeqCst);
+        *self.selection.lock().unwrap() = None;
+    }
+}
+
+/// Provider-reported image support, trusted only when it was computed for the
+/// currently selected model (profile keys `model_vision` / `model_vision_for`).
+pub fn provider_vision_flag(flag: Option<&str>, flag_for: Option<&str>, model: &str) -> bool {
+    flag == Some("1") && flag_for.map(str::trim) == Some(model.trim())
+}
+
+/// Convert the cursor position from `AppHandle::cursor_position()` into the
+/// point space `xcap::Monitor::from_point` expects.
+/// macOS caveat: tao returns logical points multiplied by the PRIMARY display's
+/// scale factor, while CoreGraphics wants global logical points, so divide it
+/// back out. On Windows both sides are physical pixels (scale ignored).
+pub fn cursor_point_for_capture(x: f64, y: f64, primary_scale: f64) -> (i32, i32) {
+    #[cfg(target_os = "macos")]
+    {
+        let s = if primary_scale > 0.0 { primary_scale } else { 1.0 };
+        ((x / s) as i32, (y / s) as i32)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = primary_scale;
+        (x as i32, y as i32)
+    }
+}
+
+pub fn vision_gate(model: &str, overrides: &[String], provider_flag: bool) -> Result<(), String> {
     let model = model.trim();
     if model.is_empty() {
         return Err("Belum ada model dipilih. Pilih model di Pengaturan → Koneksi.".into());
     }
-    if overrides.iter().any(|o| o == model) || crate::vision_models::is_vision_model(model) {
+    if provider_flag || overrides.iter().any(|o| o == model) || crate::vision_models::is_vision_model(model) {
         return Ok(());
     }
     Err(format!(
@@ -156,7 +188,12 @@ pub async fn run(app: AppHandle, choice: MonitorChoice) {
     let overrides: Vec<String> = profile(&app, "vision_overrides")
         .and_then(|raw| serde_json::from_str(&raw).ok())
         .unwrap_or_default();
-    if let Err(msg) = vision_gate(&model, &overrides) {
+    let provider_flag = provider_vision_flag(
+        profile(&app, "model_vision").as_deref(),
+        profile(&app, "model_vision_for").as_deref(),
+        &model,
+    );
+    if let Err(msg) = vision_gate(&model, &overrides, provider_flag) {
         notice(&app, &id, QUESTION, &msg);
         return;
     }
@@ -173,6 +210,9 @@ pub async fn run(app: AppHandle, choice: MonitorChoice) {
         Ok(Err(e)) => { notice(&app, &id, QUESTION, &e); return; }
         Err(e) => { notice(&app, &id, QUESTION, &format!("Gagal menangkap layar: {e}")); return; }
     };
+
+    // Superseded while capturing: stay silent (no event, no request).
+    if state.generation.load(Ordering::SeqCst) != my_gen { return; }
 
     // 3. Optional transcript context + language preference.
     let include = profile(&app, "screen_include_transcript").as_deref() != Some("0");
@@ -207,6 +247,11 @@ pub async fn run(app: AppHandle, choice: MonitorChoice) {
     };
     let mut req = client.post(format!("{base}/v1/chat/completions")).json(&body);
     if !key.is_empty() { req = req.bearer_auth(&key); }
+    if state.generation.load(Ordering::SeqCst) != my_gen {
+        // Superseded after capture-started: close this bubble so it isn't left pending.
+        let _ = app.emit("copilot-suggest-done", Done { id, question, full_text: String::new() });
+        return;
+    }
     let resp = match req.send().await {
         Ok(r) => r,
         Err(e) => { notice(&app, &id, &question, &format!("Gagal menghubungi endpoint: {e}")); return; }
@@ -263,7 +308,10 @@ pub async fn run(app: AppHandle, choice: MonitorChoice) {
 
 /// Shortcut A: capture the monitor under the cursor now.
 pub fn trigger_cursor(app: AppHandle) {
-    let point = app.cursor_position().ok().map(|p| (p.x as i32, p.y as i32));
+    app.state::<ScreenState>().cancel_cycle();
+    let scale = app.primary_monitor().ok().flatten().map(|m| m.scale_factor()).unwrap_or(1.0);
+    let point = app.cursor_position().ok()
+        .map(|p| cursor_point_for_capture(p.x, p.y, scale));
     tauri::async_runtime::spawn(async move { run(app, MonitorChoice::Cursor(point)).await });
 }
 
@@ -301,20 +349,20 @@ mod tests {
 
     #[test]
     fn gate_rejects_unknown_text_model_and_names_it() {
-        let err = vision_gate("llama-3.1-70b-versatile", &[]).unwrap_err();
+        let err = vision_gate("llama-3.1-70b-versatile", &[], false).unwrap_err();
         assert!(err.contains("llama-3.1-70b-versatile"));
         assert!(err.contains("gambar"));
     }
 
     #[test]
     fn gate_accepts_vision_model_and_manual_override() {
-        assert!(vision_gate("gpt-4o", &[]).is_ok());
-        assert!(vision_gate("my-custom-vlm", &["my-custom-vlm".to_string()]).is_ok());
+        assert!(vision_gate("gpt-4o", &[], false).is_ok());
+        assert!(vision_gate("my-custom-vlm", &["my-custom-vlm".to_string()], false).is_ok());
     }
 
     #[test]
     fn gate_rejects_empty_model() {
-        let err = vision_gate("  ", &[]).unwrap_err();
+        let err = vision_gate("  ", &[], false).unwrap_err();
         assert!(err.contains("model"));
     }
 
@@ -369,6 +417,46 @@ mod tests {
     fn finish_complete_and_superseded_are_plain() {
         assert_eq!(finish("ok", false, false), Finish::Done { text: "ok".into(), warn: false });
         assert_eq!(finish("", true, true), Finish::Done { text: "".into(), warn: false });
+    }
+
+    #[test]
+    fn provider_flag_passes_gate_for_unknown_name() {
+        let m = "mistralai/mistral-small-3.1-24b-instruct";
+        assert!(provider_vision_flag(Some("1"), Some(m), m));
+        assert!(vision_gate(m, &[], true).is_ok());
+    }
+
+    #[test]
+    fn provider_flag_for_other_model_is_ignored() {
+        assert!(!provider_vision_flag(Some("1"), Some("other"), "llama-3.1-70b-versatile"));
+        assert!(!provider_vision_flag(Some("1"), None, "m"));
+        assert!(vision_gate("llama-3.1-70b-versatile", &[], false).is_err());
+    }
+
+    #[test]
+    fn provider_flag_zero_does_not_block_heuristic_or_override() {
+        assert!(!provider_vision_flag(Some("0"), Some("gpt-4o"), "gpt-4o"));
+        assert!(vision_gate("gpt-4o", &[], false).is_ok());
+        assert!(vision_gate("my-vlm", &["my-vlm".to_string()], false).is_ok());
+    }
+
+    #[test]
+    fn cursor_point_scales_per_platform() {
+        assert_eq!(cursor_point_for_capture(900.0, 400.0, 1.0), (900, 400));
+        #[cfg(target_os = "macos")]
+        assert_eq!(cursor_point_for_capture(1800.0, 800.0, 2.0), (900, 400));
+        #[cfg(not(target_os = "macos"))]
+        assert_eq!(cursor_point_for_capture(1800.0, 800.0, 2.0), (1800, 800));
+    }
+
+    #[test]
+    fn cancel_cycle_invalidates_ticket_and_clears_selection() {
+        let s = ScreenState::default();
+        *s.selection.lock().unwrap() = Some(1);
+        let ticket = s.cycle_ticket.fetch_add(1, Ordering::SeqCst) + 1;
+        s.cancel_cycle();
+        assert_ne!(s.cycle_ticket.load(Ordering::SeqCst), ticket);
+        assert!(s.selection.lock().unwrap().is_none());
     }
 
     #[test]
