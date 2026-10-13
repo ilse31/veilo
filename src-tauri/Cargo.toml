@@ -36,6 +36,9 @@ futures-util = "0.3"
 tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
 uuid = { version = "1", features = ["v4"] }
 chrono = "0.4"
+xcap = "0.9"
+image = { version = "0.25", default-features = false, features = ["jpeg"] }
+base64 = "0.22"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 # Core Audio Process Tap (system-audio loopback without a screen-recording

@@ -5,6 +5,7 @@ pub mod copilot;
 mod db;
 mod ghost_typing;
 mod protection;
+mod screen_capture;
 mod stt;
 mod storage_migration;
 mod tray;
