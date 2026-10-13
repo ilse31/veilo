@@ -21,11 +21,16 @@ afterEach(cleanup)
 
 describe('AI model selection', () => {
   it('opens the returned models without preselecting one, then selects a model', async () => {
-    vi.mocked(testAiConnection).mockResolvedValue({ status: 200, models: ['model-a', 'model-b'] })
+    vi.mocked(testAiConnection).mockResolvedValue({
+      status: 200,
+      models: [{ id: 'model-a', vision: false }, { id: 'model-b', vision: true }],
+    })
     render(HubSettings)
     await fireEvent.click(screen.getByRole('button', { name: 'Uji koneksi' }))
-    const option = await screen.findByRole('button', { name: 'model-b' })
+    const option = await screen.findByRole('button', { name: /^model-b/ })
     expect(option.closest('details')?.open).toBe(true)
+    expect(option.textContent).toContain('👁')
+    expect(screen.getByRole('button', { name: /^model-a/ }).textContent).toContain('tanpa gambar')
     expect(settings.model).toBe('')
     await fireEvent.click(option)
     expect(settings.model).toBe('model-b')
@@ -33,14 +38,14 @@ describe('AI model selection', () => {
   })
 
   it('ignores an in-flight response when the endpoint changes', async () => {
-    let resolve!: (value: { status: number, models: string[] }) => void
+    let resolve!: (value: { status: number, models: { id: string, vision: boolean }[] }) => void
     vi.mocked(testAiConnection).mockReturnValue(new Promise(done => { resolve = done }))
     render(HubSettings)
     await fireEvent.click(screen.getByRole('button', { name: 'Uji koneksi' }))
     await fireEvent.input(screen.getByPlaceholderText('https://api.openai.com'), {
       target: { value: 'https://other.example.com' },
     })
-    resolve({ status: 200, models: ['old-model'] })
+    resolve({ status: 200, models: [{ id: 'old-model', vision: false }] })
     await waitFor(() => expect((screen.getByRole('button', { name: 'Uji koneksi' }) as HTMLButtonElement).disabled).toBe(false))
     expect(screen.queryByText('old-model')).toBeNull()
   })

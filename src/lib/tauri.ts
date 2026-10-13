@@ -191,9 +191,14 @@ export async function resizeServiceWebview(
 
 // ── AI connection test (bypasses browser CORS) ───────────────────────────────
 
+export interface ModelInfo {
+  id: string
+  vision: boolean
+}
+
 export interface AiConnectionResult {
   status: number
-  models: string[]
+  models: ModelInfo[]
 }
 
 export async function testAiConnection(apiUrl: string, apiKey: string): Promise<AiConnectionResult> {

@@ -12,6 +12,7 @@
   import GhostTypingBar from './hub/GhostTypingBar.svelte'
   import { getConfig, getProfileName, injectToService, getProfileValue } from '$lib/tauri'
   import { settings } from '$lib/stores/settings.svelte'
+  import { parseOverrides } from '$lib/vision'
   import CopilotPanel from './copilot/CopilotPanel.svelte'
   import StartSessionModal from './copilot/StartSessionModal.svelte'
   import { copilotSessionStatus } from '$lib/copilot/api'
@@ -99,6 +100,8 @@
       
       const model = await getProfileValue('model')
       if (model) settings.model = model
+      settings.visionOverrides = parseOverrides(await getProfileValue('vision_overrides'))
+      settings.screenIncludeTranscript = (await getProfileValue('screen_include_transcript')) !== '0'
     } catch (e) {
       console.error('Failed to load API credentials', e)
     }

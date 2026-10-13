@@ -1,7 +1,8 @@
 <script lang="ts">
   import { getCurrentWindow } from '@tauri-apps/api/window'
-  import { getConfig, listInputDevices, saveConfig, setAllContentProtected, setProfileValue, testAiConnection } from '$lib/tauri'
+  import { getConfig, listInputDevices, saveConfig, setAllContentProtected, setProfileValue, testAiConnection, type ModelInfo } from '$lib/tauri'
   import { settings } from '$lib/stores/settings.svelte'
+  import { supportsImages, toggleOverride } from '$lib/vision'
   import { setServiceUrl } from './webviewManager'
   import HotkeyRecorder from '$lib/components/HotkeyRecorder.svelte'
   import {
@@ -23,7 +24,7 @@
   let saved = $state(false)
   let saveError = $state('')
   let showKey = $state(false)
-  let models = $state<string[]>([])
+  let models = $state<ModelInfo[]>([])
   let modelsOpen = $state(false)
   let requestId = 0
 
@@ -74,7 +75,7 @@
       if (status >= 200 && status < 300) {
         testing = 'ok'
         models = result.models
-        if (!models.includes(settings.model)) settings.model = ''
+        if (!models.some(m => m.id === settings.model)) settings.model = ''
         modelsOpen = models.length > 0 && !settings.model
         testMsg = models.length > 0
           ? `${models.length} model tersedia`
@@ -104,6 +105,8 @@
       await setProfileValue('stt_api_key', settings.sttApiKey)
       await setProfileValue('api_url', settings.apiUrl)
       await setProfileValue('model', settings.model)
+      await setProfileValue('vision_overrides', JSON.stringify(settings.visionOverrides))
+      await setProfileValue('screen_include_transcript', settings.screenIncludeTranscript ? '1' : '0')
 
       // Persist to disk — merge onto a fresh config so fields this page does
       // NOT edit (site, language, position) aren't clobbered with stale values.
@@ -268,12 +271,23 @@
               <details class="model-picker" bind:open={modelsOpen}>
                 <summary class="hub-input" aria-label="Model default">{settings.model || 'Pilih model'}</summary>
                 <div class="model-options">
-                  {#each models as model}
-                    <button class="hub-input" class:selected={settings.model === model}
-                      aria-pressed={settings.model === model}
-                      onclick={() => { settings.model = model; modelsOpen = false }}>
-                      {model}
-                    </button>
+                  {#each models as m}
+                    <div class="model-row">
+                      <button class="hub-input" class:selected={settings.model === m.id}
+                        aria-pressed={settings.model === m.id}
+                        onclick={() => { settings.model = m.id; modelsOpen = false }}>
+                        {m.id}
+                        {#if supportsImages(m, settings.visionOverrides)}
+                          <span class="vis vis-yes" title="Mendukung gambar">👁</span>
+                        {:else}
+                          <span class="vis vis-no" title="Tidak mendukung gambar (perkiraan)">tanpa gambar</span>
+                        {/if}
+                      </button>
+                      <button class="vis-toggle" title="Tandai model ini mendukung gambar"
+                        aria-label={`Tandai ${m.id} mendukung gambar`}
+                        class:on={settings.visionOverrides.includes(m.id)}
+                        onclick={() => settings.visionOverrides = toggleOverride(settings.visionOverrides, m.id)}>👁</button>
+                    </div>
                   {/each}
                 </div>
               </details>
@@ -481,6 +495,22 @@
             <span class="hub-hint-tag">Ctrl+Alt+R</span>
           </div>
         </div>
+        <div class="hub-s-row">
+          <div class="label-wrap">
+            <div class="l-name">Baca layar (monitor di bawah kursor)</div>
+          </div>
+          <div class="field-wrap" style="flex-direction:row">
+            <span class="hub-hint-tag">Ctrl+Alt+S</span>
+          </div>
+        </div>
+        <div class="hub-s-row">
+          <div class="label-wrap">
+            <div class="l-name">Pilih monitor berikutnya, lalu baca layar</div>
+          </div>
+          <div class="field-wrap" style="flex-direction:row">
+            <span class="hub-hint-tag">Ctrl+Alt+M</span>
+          </div>
+        </div>
       </div>
     {/if}
 
@@ -490,6 +520,16 @@
         <div class="head">
           <div class="t">Copilot</div>
           <div class="d">Stealth assistant — capture audio system, transcribe, dan saran AI proaktif.</div>
+        </div>
+
+        <div class="hub-s-row">
+          <div class="label-wrap">
+            <div class="l-name">Sertakan transkrip terakhir saat membaca layar</div>
+          </div>
+          <div class="field-wrap" style="flex-direction:row;align-items:center">
+            <input type="checkbox" aria-label="Sertakan transkrip terakhir saat membaca layar"
+              bind:checked={settings.screenIncludeTranscript} />
+          </div>
         </div>
 
         <div class="hub-s-row">
@@ -784,4 +824,9 @@
   .model-options button:hover, .model-options button.selected {
     background: var(--bg-hover, #eeeeee);
   }
+  .model-row { display: flex; gap: 6px; }
+  .model-row > .hub-input { flex: 1; }
+  .vis-no { opacity: .55; font-size: 11px; margin-left: 6px; }
+  .vis-toggle { opacity: .4; }
+  .vis-toggle.on { opacity: 1; }
 </style>

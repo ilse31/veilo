@@ -11,6 +11,8 @@ export const settings = $state({
   apiUrl:  'https://api.openai.com',
   apiKey:  '',
   model:   '',
+  visionOverrides:          [] as string[],  // model ids the user marked "supports images"
+  screenIncludeTranscript:  true,
   // Appearance
   opacity:          90,
   alwaysOnTop:      true,
