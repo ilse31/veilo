@@ -79,6 +79,38 @@ pub fn friendly_http_error(status: u16, body: &str) -> String {
     }
 }
 
+/// Longest silence tolerated between stream chunks.
+const IDLE_TIMEOUT: Duration = Duration::from_secs(45);
+const INTERRUPTED_NOTE: &str = "\n\n⚠️ Koneksi terputus sebelum jawaban selesai.";
+
+#[derive(Debug, PartialEq)]
+pub enum Finish {
+    /// Nothing usable was produced: show a notice instead of a blank card.
+    Notice(String),
+    /// Normal end; `warn` means the interruption note must also be emitted as a delta.
+    Done { text: String, warn: bool },
+}
+
+/// Decide how a finished stream is surfaced. Pure so it can be unit-tested.
+pub fn finish(full: &str, interrupted: bool, superseded: bool) -> Finish {
+    if superseded {
+        return Finish::Done { text: full.to_string(), warn: false };
+    }
+    if full.trim().is_empty() {
+        let msg = if interrupted {
+            "Koneksi terputus sebelum ada jawaban. Coba lagi."
+        } else {
+            "Model tidak mengembalikan jawaban. Model reasoning atau endpoint ini mungkin \
+             tidak mendukung gambar; coba model lain."
+        };
+        return Finish::Notice(msg.into());
+    }
+    if interrupted {
+        return Finish::Done { text: format!("{full}{INTERRUPTED_NOTE}"), warn: true };
+    }
+    Finish::Done { text: full.to_string(), warn: false }
+}
+
 #[derive(Serialize, Clone)]
 struct CaptureStarted { id: String, question: String, thumbnail: String }
 #[derive(Serialize, Clone)]
@@ -169,7 +201,7 @@ pub async fn run(app: AppHandle, choice: MonitorChoice) {
     // 4. Stream.
     let messages = build_messages(&system_prompt(force_id), &context, &shot.data_uri);
     let body = serde_json::json!({ "model": model, "messages": messages, "stream": true });
-    let client = match reqwest::Client::builder().timeout(Duration::from_secs(90)).build() {
+    let client = match reqwest::Client::builder().connect_timeout(Duration::from_secs(15)).build() {
         Ok(c) => c,
         Err(e) => { notice(&app, &id, &question, &e.to_string()); return; }
     };
@@ -190,9 +222,15 @@ pub async fn run(app: AppHandle, choice: MonitorChoice) {
     let mut stream = resp.bytes_stream();
     let mut leftover = String::new();
     let mut full = String::new();
-    'outer: while let Some(chunk) = stream.next().await {
+    let mut interrupted = false;
+    'outer: loop {
+        let next = match tokio::time::timeout(IDLE_TIMEOUT, stream.next()).await {
+            Ok(n) => n,
+            Err(_) => { interrupted = true; break; } // idle too long
+        };
+        let Some(chunk) = next else { break };
         if state.generation.load(Ordering::SeqCst) != my_gen { break; } // superseded
-        let Ok(bytes) = chunk else { break };
+        let Ok(bytes) = chunk else { interrupted = true; break };
         leftover.push_str(&String::from_utf8_lossy(&bytes));
         let mut lines: Vec<String> = std::mem::take(&mut leftover).split('\n').map(String::from).collect();
         leftover = lines.pop().unwrap_or_default();
@@ -208,7 +246,19 @@ pub async fn run(app: AppHandle, choice: MonitorChoice) {
             }
         }
     }
-    let _ = app.emit("copilot-suggest-done", Done { id, question, full_text: full });
+    let superseded = state.generation.load(Ordering::SeqCst) != my_gen;
+    match finish(&full, interrupted, superseded) {
+        Finish::Notice(msg) => notice(&app, &id, &question, &msg),
+        Finish::Done { text, warn } => {
+            if warn {
+                let _ = app.emit("copilot-suggest-delta", Delta {
+                    id: id.clone(), question: question.clone(),
+                    delta: INTERRUPTED_NOTE.into(), format: "Bullets",
+                });
+            }
+            let _ = app.emit("copilot-suggest-done", Done { id, question, full_text: text });
+        }
+    }
 }
 
 /// Shortcut A: capture the monitor under the cursor now.
@@ -295,6 +345,30 @@ mod tests {
         assert!(friendly_http_error(400, "image_url is not supported").contains("gambar"));
         assert!(friendly_http_error(415, "").contains("gambar"));
         assert!(friendly_http_error(401, "bad key").contains("401"));
+    }
+
+    #[test]
+    fn finish_empty_becomes_notice() {
+        assert!(matches!(finish("", false, false), Finish::Notice(_)));
+        assert!(matches!(finish("  ", true, false), Finish::Notice(_)));
+    }
+
+    #[test]
+    fn finish_interrupted_partial_appends_warning() {
+        match finish("halo", true, false) {
+            Finish::Done { text, warn } => {
+                assert!(warn);
+                assert!(text.starts_with("halo"));
+                assert!(text.contains("Koneksi terputus"));
+            }
+            other => panic!("unexpected {other:?}"),
+        }
+    }
+
+    #[test]
+    fn finish_complete_and_superseded_are_plain() {
+        assert_eq!(finish("ok", false, false), Finish::Done { text: "ok".into(), warn: false });
+        assert_eq!(finish("", true, true), Finish::Done { text: "".into(), warn: false });
     }
 
     #[test]
