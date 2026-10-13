@@ -23,6 +23,7 @@
     format: Format
     done: boolean
     timestamp: number
+    thumb?: string
   }
 
   // Chat thread: one question → one answer, oldest first.
@@ -31,6 +32,8 @@
   let chatEl = $state<HTMLDivElement | null>(null)
   let pinned = $state(false)
   let pulse = $state(false)
+  let monitorToast = $state('')
+  let toastTimer: ReturnType<typeof setTimeout> | undefined
   let instText = $state('')
 
   const last = $derived(history[history.length - 1] ?? null)
@@ -163,7 +166,26 @@
           scrollTranscript()
         },
       )
-      unsubs = [offDelta, offDone, offEnd, offPartial, offFinal, offTranslated]
+      const offShot = await listen<{ id: string; question: string; thumbnail: string }>(
+        'screen-capture-started', ({ payload }) => {
+          history = [...history, {
+            id: payload.id, question: payload.question, text: '',
+            format: 'Bullets' as Format, done: false, timestamp: Date.now(), thumb: payload.thumbnail,
+          }].slice(-MAX_THREAD)
+          monitorToast = ''
+          pulse = true
+          setTimeout(() => pulse = false, 600)
+          scrollChat()
+        },
+      )
+      const offMon = await listen<{ index: number; total: number; name: string }>(
+        'screen-monitor-selected', ({ payload }) => {
+          monitorToast = `Layar ${payload.index + 1}/${payload.total} — ${payload.name}`
+          clearTimeout(toastTimer)
+          toastTimer = setTimeout(() => (monitorToast = ''), 2500)
+        },
+      )
+      unsubs = [offDelta, offDone, offEnd, offPartial, offFinal, offTranslated, offShot, offMon]
     }
     setup()
     return () => unsubs.forEach(u => u())
@@ -200,6 +222,7 @@
     <button class="x" onclick={dismiss} aria-label="Tutup">✕</button>
   </div>
 
+  {#if monitorToast}<div class="toast">{monitorToast}</div>{/if}
   <div class="body chat" bind:this={chatEl}>
     {#if history.length === 0}
       <div class="empty">Menunggu suara…</div>
@@ -209,6 +232,7 @@
         <div class="q">
           <div class="q-meta">Q{i + 1} · {fmtTime(item.timestamp)}</div>
           <div class="q-text">{tr(item.question) ?? item.question}</div>
+          {#if item.thumb}<img class="thumb" src={item.thumb} alt="Tangkapan layar" />{/if}
           {#if tr(item.question)}<div class="q-orig">{item.question}</div>{/if}
         </div>
         <div class="a" class:streaming={!item.done}>
@@ -340,6 +364,8 @@
     padding: 6px 10px;
   }
   .q-meta { font-size: 10px; color: #9a9ab0; margin-bottom: 2px; }
+  .thumb { max-width: 100%; max-height: 80px; border-radius: 6px; margin-top: 6px; opacity: .9; }
+  .toast { margin: 6px 12px; padding: 6px 10px; border-radius: 8px; background: rgba(94,106,210,.25); font-size: 12px; }
   .q-text { font-size: 12.5px; color: #f0f0f5; user-select: text; }
   .a {
     position: relative; align-self: flex-start; max-width: 96%;

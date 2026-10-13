@@ -365,6 +365,26 @@ pub fn run() {
                     }
                 })?;
 
+            // Screen context: read the monitor under the cursor (Ctrl+Alt+S).
+            let handle7 = app.handle().clone();
+            app.handle()
+                .global_shortcut()
+                .on_shortcut("Ctrl+Alt+S", move |_app, _shortcut, event| {
+                    if event.state == ShortcutState::Pressed {
+                        crate::screen_ask::trigger_cursor(handle7.clone());
+                    }
+                })?;
+
+            // Screen context: cycle monitors, capture after a short pause (Ctrl+Alt+M).
+            let handle8 = app.handle().clone();
+            app.handle()
+                .global_shortcut()
+                .on_shortcut("Ctrl+Alt+M", move |_app, _shortcut, event| {
+                    if event.state == ShortcutState::Pressed {
+                        crate::screen_ask::trigger_cycle(handle8.clone());
+                    }
+                })?;
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

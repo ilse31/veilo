@@ -32,4 +32,13 @@ describe('AnswerCard', () => {
       expect(listen).toHaveBeenCalledWith('copilot-session-ended', expect.any(Function))
     })
   })
+
+  it('listens for screen capture and monitor selection events', async () => {
+    const { listen } = await import('@tauri-apps/api/event')
+    render(AnswerCard)
+    await vi.waitFor(() => {
+      expect(listen).toHaveBeenCalledWith('screen-capture-started', expect.any(Function))
+      expect(listen).toHaveBeenCalledWith('screen-monitor-selected', expect.any(Function))
+    })
+  })
 })
