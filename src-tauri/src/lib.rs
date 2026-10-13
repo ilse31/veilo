@@ -5,6 +5,7 @@ pub mod copilot;
 mod db;
 mod ghost_typing;
 mod protection;
+mod screen_ask;
 mod screen_capture;
 mod stt;
 mod storage_migration;
@@ -88,6 +89,7 @@ pub fn run() {
         ))
         .manage(commands::SttState(std::sync::Mutex::new(None)))
         .manage(chat::ChatAbortState::default())
+        .manage(screen_ask::ScreenState::default())
         .setup(|app| {
             let app_data_dir = app.path().app_data_dir()?;
             storage_migration::migrate(&app_data_dir).map_err(|error| {

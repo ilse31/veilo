@@ -200,6 +200,15 @@ impl Orchestrator {
         }
     }
 
+    /// Recent transcript (last `context_window_s`), for other features that
+    /// want conversational context. Empty when nothing was heard.
+    pub fn recent_context(&self) -> String {
+        self.buffer
+            .lock()
+            .map(|b| b.window(self.config.context_window_s))
+            .unwrap_or_default()
+    }
+
     pub fn build_messages(&self, context_text: &str, question: &str) -> Vec<serde_json::Value> {
         let mut system_prompt = self.config.preset.system_prompt.clone();
         if !self.config.custom_context.is_empty() {
