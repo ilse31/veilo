@@ -888,7 +888,7 @@ pub async fn copilot_summarize_session(
 #[derive(serde::Serialize)]
 pub struct AiConnectionResult {
     status: u16,
-    models: Vec<String>,
+    models: Vec<crate::vision_models::ModelInfo>,
 }
 
 /// Runs from Rust (not the webview) so it bypasses browser CORS enforcement.
@@ -909,18 +909,25 @@ pub async fn test_ai_connection(
     }
     let resp = req.send().await.map_err(|e| e.to_string())?;
     let status = resp.status().as_u16();
-    let mut models = Vec::new();
+    let mut models: Vec<crate::vision_models::ModelInfo> = Vec::new();
     if resp.status().is_success() {
+        #[derive(serde::Deserialize, Default)]
+        struct Arch { #[serde(default)] input_modalities: Vec<String> }
         #[derive(serde::Deserialize)]
-        struct Model { id: String }
+        struct Model { id: String, #[serde(default)] architecture: Option<Arch> }
         #[derive(serde::Deserialize)]
         struct ModelList { data: Vec<Model> }
         let body = resp.json::<ModelList>().await
             .map_err(|_| "Respons daftar model tidak valid".to_string())?;
-        models = body.data.into_iter().map(|model| model.id)
-            .filter(|id| !id.trim().is_empty()).collect();
-        models.sort();
-        models.dedup();
+        models = body.data.into_iter()
+            .filter(|m| !m.id.trim().is_empty())
+            .map(|m| {
+                let mods = m.architecture.unwrap_or_default().input_modalities;
+                crate::vision_models::model_info(m.id, &mods)
+            })
+            .collect();
+        models.sort_by(|a, b| a.id.cmp(&b.id));
+        models.dedup_by(|a, b| a.id == b.id);
     }
     Ok(AiConnectionResult { status, models })
 }

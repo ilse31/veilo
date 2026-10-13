@@ -8,6 +8,7 @@ mod protection;
 mod stt;
 mod storage_migration;
 mod tray;
+mod vision_models;
 
 use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 
