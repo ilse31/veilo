@@ -752,7 +752,12 @@ pub async fn copilot_stop_session(
         let mut guard = state.0.lock().map_err(|e| e.to_string())?;
         guard.take()
     };
-    let Some(session) = session else { return Ok(()); };
+    let Some(session) = session else {
+        if let Some(w) = app.get_webview_window("copilot-card") {
+            crate::protection::hide_window(&w);
+        }
+        return Ok(());
+    };
 
     session.audio.stop();
     session.stt.stop();
@@ -903,7 +908,7 @@ pub async fn test_ai_connection(
         .timeout(std::time::Duration::from_secs(10))
         .build()
         .map_err(|e| e.to_string())?;
-    let mut req = client.get(format!("{base}/v1/models"));
+    let mut req = client.get(crate::screen_ask::api_v1_endpoint(&base, "models"));
     if !api_key.is_empty() {
         req = req.bearer_auth(api_key);
     }
@@ -914,7 +919,13 @@ pub async fn test_ai_connection(
         #[derive(serde::Deserialize, Default)]
         struct Arch { #[serde(default)] input_modalities: Vec<String> }
         #[derive(serde::Deserialize)]
-        struct Model { id: String, #[serde(default)] architecture: Option<Arch> }
+        struct Capabilities { vision: Option<bool> }
+        #[derive(serde::Deserialize)]
+        struct Model {
+            id: String,
+            #[serde(default)] architecture: Option<Arch>,
+            #[serde(default)] capabilities: Option<Capabilities>,
+        }
         #[derive(serde::Deserialize)]
         struct ModelList { data: Vec<Model> }
         let body = resp.json::<ModelList>().await
@@ -923,7 +934,11 @@ pub async fn test_ai_connection(
             .filter(|m| !m.id.trim().is_empty())
             .map(|m| {
                 let mods = m.architecture.unwrap_or_default().input_modalities;
-                crate::vision_models::model_info(m.id, &mods)
+                let mut info = crate::vision_models::model_info(m.id, &mods);
+                if let Some(vision) = m.capabilities.and_then(|c| c.vision) {
+                    info.vision = vision;
+                }
+                info
             })
             .collect();
         models.sort_by(|a, b| a.id.cmp(&b.id));

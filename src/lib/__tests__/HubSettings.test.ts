@@ -3,11 +3,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import HubSettings from '../components/hub/HubSettings.svelte'
 import { settings } from '../stores/settings.svelte'
 import { testAiConnection } from '../tauri'
+import { testAiVision } from '../screen'
 
 vi.mock('../tauri', () => ({
   getConfig: vi.fn(), saveConfig: vi.fn(), setAllContentProtected: vi.fn(),
   setProfileValue: vi.fn(), testAiConnection: vi.fn(),
 }))
+vi.mock('../screen', () => ({ testAiVision: vi.fn() }))
 vi.mock('../components/hub/webviewManager', () => ({ setServiceUrl: vi.fn() }))
 vi.mock('@tauri-apps/api/window', () => ({ getCurrentWindow: vi.fn() }))
 
@@ -16,10 +18,37 @@ beforeEach(() => {
   settings.apiUrl = 'https://example.com'
   settings.apiKey = ''
   settings.model = ''
+  settings.visionOverrides = []
 })
 afterEach(cleanup)
 
 describe('AI model selection', () => {
+  it('tests actual image delivery for the selected model', async () => {
+    vi.mocked(testAiConnection).mockResolvedValue({
+      status: 200, models: [{ id: 'vision-model', vision: true }],
+    })
+    vi.mocked(testAiVision).mockResolvedValue({
+      status: 'failed', message: 'Model menjawab seolah gambar tidak diterima.',
+    })
+    render(HubSettings)
+    await fireEvent.click(screen.getByRole('button', { name: 'Uji koneksi' }))
+    await fireEvent.click(await screen.findByRole('button', { name: /^vision-model/ }))
+    await fireEvent.click(screen.getByRole('button', { name: 'Uji gambar' }))
+    expect(testAiVision).toHaveBeenCalledWith('https://example.com', '', 'vision-model')
+    expect((await screen.findByRole('alert')).textContent).toContain('gambar tidak diterima')
+  })
+  it('marks a model for screen reading after a successful image test', async () => {
+    vi.mocked(testAiConnection).mockResolvedValue({
+      status: 200, models: [{ id: 'router-model', vision: false }],
+    })
+    vi.mocked(testAiVision).mockResolvedValue({ status: 'passed', message: 'Gambar terbaca.' })
+    render(HubSettings)
+    await fireEvent.click(screen.getByRole('button', { name: 'Uji koneksi' }))
+    await fireEvent.click(await screen.findByRole('button', { name: /^router-model/ }))
+    await fireEvent.click(screen.getByRole('button', { name: 'Uji gambar' }))
+    await waitFor(() => expect(settings.visionOverrides).toContain('router-model'))
+    expect(screen.getByRole('status').textContent).toContain('klik Simpan')
+  })
   it('opens the returned models without preselecting one, then selects a model', async () => {
     vi.mocked(testAiConnection).mockResolvedValue({
       status: 200,

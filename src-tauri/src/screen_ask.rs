@@ -22,7 +22,15 @@ pub struct ScreenState {
     pub cycle_ticket: AtomicU64,
     /// Monitor index chosen by the cycle shortcut (None = nothing chosen yet).
     pub selection: Mutex<Option<usize>>,
+    /// A screenshot awaiting explicit confirmation from the preview UI.
+    pending_preview: Mutex<Option<PendingPreview>>,
+    preview_ticket: AtomicU64,
 }
+
+struct PendingPreview { id: String, shot: screen_capture::Shot }
+
+#[derive(Serialize)]
+pub struct CapturePreview { id: String, image: String, monitor_name: String }
 
 impl ScreenState {
     /// Cancel a pending cycle capture (shortcut M) and forget the chosen monitor.
@@ -86,8 +94,12 @@ pub fn system_prompt(force_indonesian: bool, custom_instruction: &str) -> String
     s
 }
 
-pub fn build_messages(system: &str, context: &str, data_uri: &str) -> Vec<serde_json::Value> {
-    let mut text = String::from("Baca layar ini dan jawab/bantu apa yang terlihat.");
+pub fn build_messages(system: &str, context: &str, data_uri: &str, question: &str) -> Vec<serde_json::Value> {
+    let mut text = if question.trim().is_empty() {
+        String::from("Baca layar ini dan jawab/bantu apa yang terlihat.")
+    } else {
+        format!("Baca layar ini dan jawab pertanyaan berikut: {}", question.trim())
+    };
     if !context.trim().is_empty() {
         text = format!(
             "Konteks percakapan terakhir (latar saja):\n{context}\n\n{text}"
@@ -103,6 +115,48 @@ pub fn build_messages(system: &str, context: &str, data_uri: &str) -> Vec<serde_
             ],
         }),
     ]
+}
+
+pub fn build_text_messages(system: &str, context: &str, question: &str) -> Vec<serde_json::Value> {
+    let text = if context.trim().is_empty() {
+        question.trim().to_string()
+    } else {
+        format!("Konteks percakapan terakhir (latar saja):\n{context}\n\nPertanyaan pengguna:\n{}", question.trim())
+    };
+    vec![
+        serde_json::json!({ "role": "system", "content": system }),
+        serde_json::json!({ "role": "user", "content": text }),
+    ]
+}
+
+pub fn api_v1_endpoint(base: &str, path: &str) -> String {
+    let base = base.trim().trim_end_matches('/');
+    let base = base.strip_suffix("/v1").unwrap_or(base);
+    format!("{base}/v1/{path}")
+}
+
+pub fn chat_endpoint(base: &str) -> String {
+    api_v1_endpoint(base, "chat/completions")
+}
+
+fn answer_context(app: &AppHandle) -> (String, bool, String) {
+    let include = profile(app, "screen_include_transcript").as_deref() != Some("0");
+    let context = if include {
+        app.try_state::<crate::copilot::session::CopilotState>()
+            .and_then(|st| st.0.lock().ok().and_then(|g| g.as_ref().map(|s| s.orchestrator.recent_context())))
+            .unwrap_or_default()
+    } else { String::new() };
+    let force_id = app.try_state::<crate::copilot::session::CopilotState>()
+        .and_then(|st| st.0.lock().ok().and_then(|g| g.as_ref().map(|s|
+            s.orchestrator.force_indonesian.load(Ordering::Relaxed))))
+        .unwrap_or_else(|| {
+            app.path().app_data_dir().ok()
+                .map(|d| crate::config::read_config(&d).force_indonesian)
+                .unwrap_or(false)
+        });
+    let instruction = app.state::<ScreenState>().custom_instruction.lock()
+        .map(|value| value.clone()).unwrap_or_default();
+    (context, force_id, instruction)
 }
 
 pub fn friendly_http_error(status: u16, body: &str) -> String {
@@ -183,28 +237,6 @@ pub async fn run(app: AppHandle, choice: MonitorChoice) {
     let state = app.state::<ScreenState>();
     let my_gen = state.generation.fetch_add(1, Ordering::SeqCst) + 1;
     *state.selection.lock().unwrap() = None;
-
-    // 1. Credentials + capability gate (before touching the screen).
-    let base = profile(&app, "api_url")
-        .unwrap_or_else(|| "https://api.openai.com".into())
-        .trim_end_matches('/')
-        .to_string();
-    let key = profile(&app, "api_key").unwrap_or_default();
-    let model = profile(&app, "model").unwrap_or_default();
-    let overrides: Vec<String> = profile(&app, "vision_overrides")
-        .and_then(|raw| serde_json::from_str(&raw).ok())
-        .unwrap_or_default();
-    let provider_flag = provider_vision_flag(
-        profile(&app, "model_vision").as_deref(),
-        profile(&app, "model_vision_for").as_deref(),
-        &model,
-    );
-    if let Err(msg) = vision_gate(&model, &overrides, provider_flag) {
-        notice(&app, &id, QUESTION, &msg);
-        return;
-    }
-
-    // 2. Capture (blocking OS calls).
     if !screen_capture::screen_access_granted() {
         notice(&app, &id, QUESTION,
             "Izin Perekaman Layar belum diberikan. Buka Pengaturan Sistem → Privasi & Keamanan → \
@@ -220,42 +252,51 @@ pub async fn run(app: AppHandle, choice: MonitorChoice) {
     // Superseded while capturing: stay silent (no event, no request).
     if state.generation.load(Ordering::SeqCst) != my_gen { return; }
 
-    // 3. Optional transcript context + language preference.
-    let include = profile(&app, "screen_include_transcript").as_deref() != Some("0");
-    let context = if include {
-        app.try_state::<crate::copilot::session::CopilotState>()
-            .and_then(|st| st.0.lock().ok().and_then(|g| g.as_ref().map(|s| s.orchestrator.recent_context())))
-            .unwrap_or_default()
-    } else {
-        String::new()
-    };
-    let force_id = app.try_state::<crate::copilot::session::CopilotState>()
-        .and_then(|st| st.0.lock().ok().and_then(|g| g.as_ref().map(|s|
-            s.orchestrator.force_indonesian.load(Ordering::Relaxed))))
-        .unwrap_or_else(|| {
-            app.path().app_data_dir().ok()
-                .map(|d| crate::config::read_config(&d).force_indonesian)
-                .unwrap_or(false)
-        });
+    answer_shot(app, shot, String::new(), my_gen).await;
+}
 
-    let question = format!("{QUESTION}: {}", shot.monitor_name);
+async fn answer_shot(app: AppHandle, shot: screen_capture::Shot, user_question: String, my_gen: u64) {
+    let id = uuid::Uuid::new_v4().to_string();
+    let base = profile(&app, "api_url").unwrap_or_else(|| "https://api.openai.com".into());
+    let key = profile(&app, "api_key").unwrap_or_default();
+    let model = profile(&app, "model").unwrap_or_default();
+    let overrides: Vec<String> = profile(&app, "vision_overrides")
+        .and_then(|raw| serde_json::from_str(&raw).ok()).unwrap_or_default();
+    let provider_flag = provider_vision_flag(
+        profile(&app, "model_vision").as_deref(),
+        profile(&app, "model_vision_for").as_deref(), &model,
+    );
+    if let Err(msg) = vision_gate(&model, &overrides, provider_flag) {
+        notice(&app, &id, QUESTION, &msg);
+        return;
+    }
+
+    let (context, force_id, instruction) = answer_context(&app);
+    let question = if user_question.trim().is_empty() {
+        format!("{QUESTION}: {}", shot.monitor_name)
+    } else {
+        user_question.trim().to_string()
+    };
     show_card(&app);
     let _ = app.emit("screen-capture-started", CaptureStarted {
         id: id.clone(), question: question.clone(), thumbnail: shot.thumbnail.clone(),
     });
 
-    // 4. Include explicit user instructions even when transcript context is off.
-    let instruction = match state.custom_instruction.lock() {
-        Ok(value) => value.clone(),
-        Err(e) => { notice(&app, &id, &question, &format!("Gagal membaca instruksi: {e}")); return; }
-    };
-    let messages = build_messages(&system_prompt(force_id, &instruction), &context, &shot.data_uri);
+    let messages = build_messages(&system_prompt(force_id, &instruction), &context, &shot.data_uri, &user_question);
+    stream_answer(app, id, question, base, key, model, messages, my_gen).await;
+}
+
+async fn stream_answer(
+    app: AppHandle, id: String, question: String, base: String, key: String,
+    model: String, messages: Vec<serde_json::Value>, my_gen: u64,
+) {
+    let state = app.state::<ScreenState>();
     let body = serde_json::json!({ "model": model, "messages": messages, "stream": true });
     let client = match reqwest::Client::builder().connect_timeout(Duration::from_secs(15)).build() {
         Ok(c) => c,
         Err(e) => { notice(&app, &id, &question, &e.to_string()); return; }
     };
-    let mut req = client.post(format!("{base}/v1/chat/completions")).json(&body);
+    let mut req = client.post(chat_endpoint(&base)).json(&body);
     if !key.is_empty() { req = req.bearer_auth(&key); }
     if state.generation.load(Ordering::SeqCst) != my_gen {
         // Superseded after capture-started: close this bubble so it isn't left pending.
@@ -316,6 +357,145 @@ pub async fn run(app: AppHandle, choice: MonitorChoice) {
     }
 }
 
+#[tauri::command]
+pub async fn screen_list_monitors() -> Result<Vec<screen_capture::MonitorInfo>, String> {
+    tauri::async_runtime::spawn_blocking(screen_capture::list_monitors)
+        .await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn screen_capture_preview(app: AppHandle, index: usize) -> Result<CapturePreview, String> {
+    if !screen_capture::screen_access_granted() {
+        return Err("Izin Perekaman Layar belum diberikan. Aktifkan Veilo di pengaturan privasi sistem.".into());
+    }
+    let state = app.state::<ScreenState>();
+    let ticket = state.preview_ticket.fetch_add(1, Ordering::SeqCst) + 1;
+    let shot = tauri::async_runtime::spawn_blocking(move || screen_capture::capture(MonitorChoice::Index(index)))
+        .await.map_err(|e| e.to_string())??;
+    let preview = CapturePreview {
+        id: uuid::Uuid::new_v4().to_string(),
+        image: shot.data_uri.clone(),
+        monitor_name: shot.monitor_name.clone(),
+    };
+    let mut pending = state.pending_preview.lock().map_err(|e| e.to_string())?;
+    if state.preview_ticket.load(Ordering::SeqCst) != ticket {
+        return Err("Pratinjau digantikan oleh tangkapan layar baru.".into());
+    }
+    *pending = Some(PendingPreview { id: preview.id.clone(), shot });
+    Ok(preview)
+}
+
+#[tauri::command]
+pub fn screen_discard_preview(app: AppHandle, preview_id: String) -> Result<(), String> {
+    let state = app.state::<ScreenState>();
+    let mut pending = state.pending_preview.lock().map_err(|e| e.to_string())?;
+    if pending.as_ref().is_some_and(|p| p.id == preview_id) { *pending = None; }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn screen_submit_preview(app: AppHandle, preview_id: String, question: String) -> Result<(), String> {
+    let state = app.state::<ScreenState>();
+    let shot = {
+        let mut pending = state.pending_preview.lock().map_err(|e| e.to_string())?;
+        if !pending.as_ref().is_some_and(|p| p.id == preview_id) {
+            return Err("Pratinjau sudah tidak tersedia. Ambil tangkapan layar lagi.".into());
+        }
+        pending.take().unwrap().shot
+    };
+    state.cancel_cycle();
+    let generation = state.generation.fetch_add(1, Ordering::SeqCst) + 1;
+    tauri::async_runtime::spawn(async move { answer_shot(app, shot, question, generation).await });
+    Ok(())
+}
+
+#[tauri::command]
+pub fn copilot_ask_text(app: AppHandle, question: String) -> Result<(), String> {
+    let question = question.trim().to_string();
+    if question.is_empty() { return Err("Tulis pertanyaan terlebih dahulu.".into()); }
+    let model = profile(&app, "model").unwrap_or_default();
+    if model.trim().is_empty() { return Err("Pilih model di Pengaturan → Koneksi.".into()); }
+    let base = profile(&app, "api_url").unwrap_or_else(|| "https://api.openai.com".into());
+    let key = profile(&app, "api_key").unwrap_or_default();
+    let (context, force_id, instruction) = answer_context(&app);
+    let system = if force_id {
+        format!("Kamu asisten yang menjawab pertanyaan pengguna. Jawab dalam Bahasa Indonesia.\n\nInstruksi khusus pengguna:\n{instruction}")
+    } else {
+        format!("Kamu asisten yang menjawab pertanyaan pengguna.\n\nInstruksi khusus pengguna:\n{instruction}")
+    };
+    let messages = build_text_messages(&system, &context, &question);
+    let state = app.state::<ScreenState>();
+    state.cancel_cycle();
+    let generation = state.generation.fetch_add(1, Ordering::SeqCst) + 1;
+    let id = uuid::Uuid::new_v4().to_string();
+    show_card(&app);
+    let _ = app.emit("screen-capture-started", CaptureStarted {
+        id: id.clone(), question: question.clone(), thumbnail: String::new(),
+    });
+    tauri::async_runtime::spawn(async move {
+        stream_answer(app, id, question, base, key, model, messages, generation).await;
+    });
+    Ok(())
+}
+
+#[derive(Serialize)]
+pub struct VisionProbeResult { pub status: &'static str, pub message: String }
+
+pub fn classify_vision_probe(answer: &str) -> VisionProbeResult {
+    let lower = answer.to_lowercase();
+    if ["no image", "no attached", "tidak ada gambar", "tidak melihat gambar", "unggah gambar"]
+        .iter().any(|phrase| lower.contains(phrase)) {
+        VisionProbeResult { status: "failed", message: "Model menjawab seolah gambar tidak diterima. Periksa jalur provider atau pilih model lain.".into() }
+    } else if lower.contains("red") || lower.contains("merah") {
+        VisionProbeResult { status: "passed", message: "Model membaca gambar uji berwarna merah.".into() }
+    } else if answer.trim().is_empty() {
+        VisionProbeResult { status: "inconclusive", message: "Model tidak memberikan jawaban untuk gambar uji.".into() }
+    } else {
+        VisionProbeResult { status: "inconclusive", message: format!("Gambar dikirim, tetapi jawaban model tidak membuktikan gambar terbaca: {}", answer.chars().take(160).collect::<String>()) }
+    }
+}
+
+#[tauri::command]
+pub async fn test_ai_vision(api_url: String, api_key: String, model: String) -> Result<VisionProbeResult, String> {
+    if model.trim().is_empty() { return Err("Pilih model terlebih dahulu.".into()); }
+    let image = screen_capture::vision_probe_image()?;
+    let messages = build_messages(
+        "Jawab singkat berdasarkan gambar yang diberikan.", "", &image,
+        "Apa warna dominan gambar ini? Jawab satu kata.",
+    );
+    let client = reqwest::Client::builder().timeout(Duration::from_secs(45))
+        .build().map_err(|e| e.to_string())?;
+    let mut req = client.post(chat_endpoint(&api_url))
+        .json(&serde_json::json!({ "model": model, "messages": messages, "stream": true }));
+    if !api_key.is_empty() { req = req.bearer_auth(api_key); }
+    let resp = req.send().await.map_err(|e| format!("Uji gambar gagal: {e}"))?;
+    if !resp.status().is_success() {
+        let status = resp.status().as_u16();
+        let body = resp.text().await.unwrap_or_default();
+        return Ok(VisionProbeResult { status: "failed", message: friendly_http_error(status, &body) });
+    }
+    use futures_util::StreamExt;
+    let mut stream = resp.bytes_stream();
+    let mut leftover = String::new();
+    let mut answer = String::new();
+    while let Some(chunk) = stream.next().await {
+        let bytes = chunk.map_err(|e| e.to_string())?;
+        leftover.push_str(&String::from_utf8_lossy(&bytes));
+        let mut lines: Vec<String> = std::mem::take(&mut leftover).split('\n').map(String::from).collect();
+        leftover = lines.pop().unwrap_or_default();
+        for line in lines {
+            let Some(data) = line.trim().strip_prefix("data: ") else { continue };
+            if data == "[DONE]" { return Ok(classify_vision_probe(&answer)); }
+            if let Ok(json) = serde_json::from_str::<serde_json::Value>(data) {
+                if let Some(delta) = json["choices"][0]["delta"]["content"].as_str() {
+                    answer.push_str(delta);
+                }
+            }
+        }
+    }
+    Ok(classify_vision_probe(&answer))
+}
+
 /// Shortcut A: capture the monitor under the cursor now.
 pub fn trigger_cursor(app: AppHandle) {
     app.state::<ScreenState>().cancel_cycle();
@@ -358,10 +538,24 @@ mod tests {
     use super::*;
 
     #[test]
+    fn vision_probe_distinguishes_a_read_image_from_missing_image() {
+        assert_eq!(classify_vision_probe("Red").status, "passed");
+        assert_eq!(classify_vision_probe("Saya tidak melihat gambar terlampir").status, "failed");
+        assert_eq!(classify_vision_probe("Tidak yakin").status, "inconclusive");
+    }
+
+    #[test]
+    fn chat_endpoint_accepts_bases_with_or_without_v1() {
+        assert_eq!(chat_endpoint("http://localhost:20128/v1"), "http://localhost:20128/v1/chat/completions");
+        assert_eq!(chat_endpoint("http://localhost:20128"), "http://localhost:20128/v1/chat/completions");
+        assert_eq!(api_v1_endpoint("http://localhost:20128/v1", "models"), "http://localhost:20128/v1/models");
+    }
+
+    #[test]
     fn screen_request_includes_instruction_and_image_without_transcript() {
         let instruction = "Jika soal perlu koding, gunakan TypeScript.";
         let prompt = system_prompt(false, instruction);
-        let messages = build_messages(&prompt, "", "data:image/jpeg;base64,AAAA");
+        let messages = build_messages(&prompt, "", "data:image/jpeg;base64,AAAA", "");
         assert!(messages[0]["content"].as_str().unwrap().contains(instruction));
         assert_eq!(messages[1]["content"][1]["image_url"]["url"], "data:image/jpeg;base64,AAAA");
     }
@@ -399,7 +593,7 @@ mod tests {
 
     #[test]
     fn messages_have_system_then_user_with_image_part() {
-        let m = build_messages("SYS", "Q: apa itu X?", "data:image/jpeg;base64,AAAA");
+        let m = build_messages("SYS", "Q: apa itu X?", "data:image/jpeg;base64,AAAA", "");
         assert_eq!(m.len(), 2);
         assert_eq!(m[0]["role"], "system");
         assert_eq!(m[0]["content"], "SYS");
@@ -413,7 +607,7 @@ mod tests {
 
     #[test]
     fn messages_without_context_still_ask_about_the_screen() {
-        let m = build_messages("SYS", "", "data:image/jpeg;base64,AAAA");
+        let m = build_messages("SYS", "", "data:image/jpeg;base64,AAAA", "");
         let text = m[1]["content"][0]["text"].as_str().unwrap();
         assert!(text.to_lowercase().contains("layar"));
         assert!(!text.contains("Konteks percakapan"));

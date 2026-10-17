@@ -6,6 +6,8 @@
   import { settings } from '$lib/stores/settings.svelte'
   import { copilotSetCustomInstruction, copilotSetForceIndonesian } from '$lib/copilot/api'
   import { getConfig } from '$lib/tauri'
+  import { askCopilot } from '$lib/screen'
+  import ScreenCaptureDialog from './ScreenCaptureDialog.svelte'
   import { marked } from 'marked'
   import DOMPurify from 'dompurify'
 
@@ -35,6 +37,10 @@
   let monitorToast = $state('')
   let toastTimer: ReturnType<typeof setTimeout> | undefined
   let instText = $state('')
+  let questionText = $state('')
+  let questionError = $state('')
+  let questionBusy = $state(false)
+  let editingQuestion = $state(false)
   let instructionStatus = $state('')
   let instructionError = $state('')
   let editingInstruction = $state(false)
@@ -93,9 +99,31 @@
     }
   }
 
+  async function submitQuestion() {
+    const question = questionText.trim()
+    if (!question || questionBusy) return
+    questionBusy = true
+    questionError = ''
+    try {
+      await askCopilot(question)
+      questionText = ''
+    } catch (e) {
+      questionError = `Gagal mengirim pertanyaan: ${String(e)}`
+    } finally {
+      questionBusy = false
+    }
+  }
+
+  function handleQuestionKeydown(e: KeyboardEvent) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      void submitQuestion()
+    }
+  }
+
   async function focusInstruction(event: PointerEvent) {
     if (event.button !== 0) return
-    const input = event.currentTarget as HTMLInputElement
+    const input = event.currentTarget as HTMLElement
     try {
       // The card is shown without activation. Activate only when the user
       // explicitly selects the input so the webview can receive keystrokes.
@@ -151,7 +179,7 @@
           if (dismissAfterMs > 0) {
             setTimeout(() => {
               // Only dismiss if: still showing this suggestion as current, not pinned, no newer arrived
-              if (!pinned && !editingInstruction && !instText.trim()
+              if (!pinned && !editingInstruction && !editingQuestion && !instText.trim() && !questionText.trim()
                   && history[history.length - 1]?.id === payload.id) {
                 getCurrentWindow().hide()
               }
@@ -242,10 +270,12 @@
     <button class="x" onclick={dismiss} aria-label="Tutup">✕</button>
   </div>
 
+  <div class="screen-toolbar"><ScreenCaptureDialog /></div>
+
   {#if monitorToast}<div class="toast">{monitorToast}</div>{/if}
   <div class="body chat" bind:this={chatEl}>
     {#if history.length === 0}
-      <div class="empty">Menunggu suara…</div>
+      <div class="empty">Tanya AI atau baca layar untuk mulai…</div>
     {/if}
     {#each history as item, i (item.id)}
       <div class="qa">
@@ -286,8 +316,19 @@
     </div>
   {/if}
 
-  <!-- Real-time instructions -->
-  <div class="inst-box">
+  <div class="ask-box">
+    <textarea aria-label="Tanya AI" bind:value={questionText} rows="2"
+      onpointerdown={focusInstruction}
+      onfocus={() => editingQuestion = true} onblur={() => editingQuestion = false}
+      onkeydown={handleQuestionKeydown}
+      placeholder="Tanya AI tentang percakapan (tanpa gambar)…"></textarea>
+    <button onclick={submitQuestion} disabled={!questionText.trim() || questionBusy} title="Kirim pertanyaan">Kirim</button>
+  </div>
+  {#if questionError}<div class="inst-feedback error" role="alert">{questionError}</div>{/if}
+
+  <details class="instruction-settings">
+    <summary>Instruksi cara menjawab</summary>
+    <div class="inst-box">
     <input 
       type="text" 
       bind:value={instText} 
@@ -297,11 +338,12 @@
       onfocus={() => editingInstruction = true}
       onblur={() => editingInstruction = false}
       onkeydown={handleInstKeydown}
-      placeholder="Ketik instruksi khusus (misal: 'buat code saja')..." 
+      placeholder="Misalnya: gunakan TypeScript untuk soal kode"
       class="inst-input"
     />
-    <button onclick={submitInstruction} class="inst-send" title="Kirim instruksi">➔</button>
-  </div>
+    <button onclick={submitInstruction} class="inst-send" title="Simpan instruksi">Simpan</button>
+    </div>
+  </details>
 
   {#if instructionStatus}<div class="inst-feedback" role="status">{instructionStatus}</div>{/if}
   {#if instructionError}<div class="inst-feedback" role="alert">{instructionError}</div>{/if}
@@ -317,6 +359,15 @@
 </div>
 
 <style>
+  .screen-toolbar { padding: 6px 12px; border-bottom: 1px solid rgba(255,255,255,.06); }
+  .ask-box { display: flex; align-items: end; gap: 6px; padding: 8px 12px; border-top: 1px solid rgba(255,255,255,.08); }
+  .ask-box textarea { flex: 1; min-width: 0; max-height: 90px; resize: vertical; border-radius: 7px;
+    border: 1px solid rgba(255,255,255,.14); background: rgba(255,255,255,.05); color: inherit; padding: 7px; font: inherit; }
+  .ask-box button { border: 0; border-radius: 7px; padding: 8px 10px; background: #5e6ad2; color: white; cursor: pointer; }
+  .ask-box button:disabled { opacity: .5; cursor: default; }
+  .instruction-settings { border-top: 1px solid rgba(255,255,255,.06); }
+  .instruction-settings summary { cursor: pointer; padding: 6px 12px; font-size: 11.5px; color: #b9c0ff; }
+  .inst-feedback.error { color: #f79d9d; }
   .card {
     display: flex; flex-direction: column;
     height: 100vh;

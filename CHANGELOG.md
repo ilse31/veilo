@@ -1,5 +1,17 @@
 # Changelog
 
+## v1.5.0
+
+### Added
+- **Ask AI in Copilot.** Type a question directly in the Copilot card. The question field is separate from persistent instructions such as a preferred programming language.
+- **Screen preview.** Choose a monitor, inspect its screenshot, optionally add a question, and confirm before sending it to the AI. Canceling discards the preview.
+- **Image delivery test.** Settings sends a known image through the selected model and reports whether the provider route actually passed it through. A successful test marks the model as image-capable after saving.
+
+### Improved
+- The model list reads 9router-style `capabilities.vision` metadata when available.
+- OpenAI-compatible endpoint URLs work whether the configured base ends in `/v1` or not.
+- The Copilot card can be closed after a standalone question or screen reading without an audio session.
+
 ## v1.4.0
 
 ### Added

@@ -30,7 +30,7 @@ describe('AnswerCard', () => {
 
   it('renders empty placeholder when no suggestion', () => {
     render(AnswerCard)
-    expect(screen.getByText(/menunggu/i)).toBeTruthy()
+    expect(screen.getByText(/tanya ai atau baca layar/i)).toBeTruthy()
   })
 
   it('subscribes to copilot-suggest-delta on mount', async () => {
@@ -75,6 +75,18 @@ describe('AnswerCard', () => {
     }))
     expect(invoke).not.toHaveBeenCalledWith('copilot_force_regenerate')
     expect(screen.getByRole('status').textContent).toContain('tangkap layar lagi')
+  })
+
+  it('sends a typed question as a question without changing the instruction', async () => {
+    const { invoke } = await import('@tauri-apps/api/core')
+    render(AnswerCard)
+    const input = screen.getByRole('textbox', { name: 'Tanya AI' })
+    await fireEvent.input(input, { target: { value: 'Tolong jelaskan soal ini' } })
+    await fireEvent.keyDown(input, { key: 'Enter' })
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith('copilot_ask_text', {
+      question: 'Tolong jelaskan soal ini',
+    }))
+    expect(invoke).not.toHaveBeenCalledWith('copilot_set_custom_instruction', expect.anything())
   })
 
   it('keeps the card open while the user is editing an instruction', async () => {

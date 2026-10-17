@@ -3,6 +3,7 @@
   import { listen } from '@tauri-apps/api/event'
   import { marked } from 'marked'
   import DOMPurify from 'dompurify'
+  import ScreenCaptureDialog from './ScreenCaptureDialog.svelte'
   import {
     copilotSessionStatus, copilotStopSession, copilotListSessions, copilotSummarizeSession,
     type SessionStatus, type CopilotSessionRow,
@@ -100,6 +101,11 @@
       {/if}
     </div>
 
+    <div class="screen-action">
+      <ScreenCaptureDialog />
+      <span>Pilih monitor, periksa gambar, lalu kirim ke model AI.</span>
+    </div>
+
     {#if history.length > 0}
       <h3 class="section-h">Riwayat sesi</h3>
       <ul class="history">
@@ -132,6 +138,7 @@
 </div>
 
 <style>
+  .screen-action { display: flex; align-items: center; gap: 10px; margin: -12px 0 24px; font-size: 12px; color: var(--text-soft); }
   .status-card {
     display: flex; align-items: center; justify-content: space-between;
     padding: 16px; border: 1px solid var(--border); border-radius: 10px;

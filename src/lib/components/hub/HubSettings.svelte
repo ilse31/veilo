@@ -3,6 +3,7 @@
   import { getConfig, listInputDevices, saveConfig, setAllContentProtected, setProfileValue, testAiConnection, type ModelInfo } from '$lib/tauri'
   import { settings } from '$lib/stores/settings.svelte'
   import { supportsImages, toggleOverride, resolveModelVision } from '$lib/vision'
+  import { testAiVision, type VisionProbeResult } from '$lib/screen'
   import { setServiceUrl } from './webviewManager'
   import HotkeyRecorder from '$lib/components/HotkeyRecorder.svelte'
   import {
@@ -27,14 +28,50 @@
   let models = $state<ModelInfo[]>([])
   let modelsOpen = $state(false)
   let requestId = 0
+  let visionRequestId = 0
+  let visionTesting = $state(false)
+  let visionResult = $state<VisionProbeResult | null>(null)
+
+  function resetVisionTest() {
+    visionRequestId++
+    visionTesting = false
+    visionResult = null
+  }
 
   function resetConnection() {
+    resetVisionTest()
     requestId++
     testing = null
     testMsg = ''
     models = []
     modelsOpen = false
     settings.model = ''
+  }
+
+  async function testImage() {
+    if (!settings.model || visionTesting) return
+    const currentRequest = ++visionRequestId
+    visionTesting = true
+    visionResult = null
+    try {
+      const result = await testAiVision(settings.apiUrl.trim(), settings.apiKey || '', settings.model)
+      if (currentRequest === visionRequestId) {
+        visionResult = result
+        if (result.status === 'passed') {
+          if (!settings.visionOverrides.includes(settings.model)) {
+            settings.visionOverrides = [...settings.visionOverrides, settings.model]
+          }
+          settings.modelVision = true
+          settings.modelVisionFor = settings.model
+        }
+      }
+    } catch (e) {
+      if (currentRequest === visionRequestId) {
+        visionResult = { status: 'failed', message: `Uji gambar gagal: ${String(e)}` }
+      }
+    } finally {
+      if (currentRequest === visionRequestId) visionTesting = false
+    }
   }
 
   // ── Live: apply opacity change immediately via CSS (hub-root)
@@ -270,7 +307,7 @@
         <div class="hub-s-row">
           <div class="label-wrap">
             <div class="l-name">Model default</div>
-            <div class="l-desc">Dipakai untuk Obrolan AI & Prompt Cepat di Dasbor.</div>
+            <div class="l-desc">Dipakai untuk Obrolan AI, Copilot, dan Baca layar.</div>
           </div>
           <div class="field-wrap">
             {#if models.length > 0}
@@ -281,7 +318,7 @@
                     <div class="model-row">
                       <button class="hub-input" class:selected={settings.model === m.id}
                         aria-pressed={settings.model === m.id}
-                        onclick={() => { settings.model = m.id; modelsOpen = false }}>
+                        onclick={() => { settings.model = m.id; modelsOpen = false; resetVisionTest() }}>
                         {m.id}
                         {#if supportsImages(m, settings.visionOverrides)}
                           <span class="vis vis-yes" title="Mendukung gambar">👁</span>
@@ -320,6 +357,24 @@
             {:else if testing === 'fail'}
               <span style="display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--red);font-weight:500">
                 <span class="hub-dot r"></span> {testMsg || 'Gagal — periksa URL/Key'}
+              </span>
+            {/if}
+          </div>
+        </div>
+
+        <div class="hub-s-row">
+          <div class="label-wrap">
+            <div class="l-name">Uji gambar model</div>
+            <div class="l-desc">Mengirim gambar uji merah ke model terpilih untuk memastikan jalur provider benar-benar meneruskan gambar.</div>
+          </div>
+          <div class="field-wrap">
+            <button class="hub-btn" onclick={testImage} disabled={!settings.model || visionTesting}>
+              {visionTesting ? 'Menguji gambar…' : 'Uji gambar'}
+            </button>
+            {#if visionResult}
+              <span class="vision-result" class:vision-pass={visionResult.status === 'passed'}
+                role={visionResult.status === 'passed' ? 'status' : 'alert'}>
+                {visionResult.message}{visionResult.status === 'passed' ? ' Dukungan gambar ditandai; klik Simpan untuk menerapkannya.' : ''}
               </span>
             {/if}
           </div>
@@ -783,6 +838,8 @@
 </div>
 
 <style>
+  .vision-result { font-size: 12px; color: var(--red, #c74444); }
+  .vision-result.vision-pass { color: var(--green, #198754); }
   .preset-list { display: flex; flex-direction: column; gap: 6px; }
   .preset-item {
     display: flex; align-items: center; justify-content: space-between; gap: 10px;

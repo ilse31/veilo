@@ -97,15 +97,16 @@ jobs:
             Your quiet AI companion.
 
             ### New
-            - Read a monitor with Ctrl+Alt+S, or choose one with Ctrl+Alt+M, and get a vision-model answer in the Copilot card.
-            - Model picker marks image-capable models and supports a manual override.
-            - Optionally add the latest Copilot transcript and use your custom instructions when reading the screen.
+            - Ask AI directly from the Copilot card, with persistent instructions in a separate field.
+            - Choose a monitor, preview its screenshot, add a question, and confirm before sending it to AI.
+            - Test whether the selected provider route actually delivers an image to the model.
 
-            ### Fixed
-            - The Copilot instruction input receives keyboard focus when selected.
-            - Empty or interrupted screen answers now show a clear message.
+            ### Improved
+            - Read 9router-style vision capability metadata from the model list.
+            - Accept OpenAI-compatible API bases with or without `/v1`.
+            - Close the Copilot card after standalone questions or screen reading.
 
-            Screen reading requires an image-capable model and provider route. macOS requires Screen Recording permission. See CHANGELOG.md for details.
+            Screen reading requires an image-capable model and provider route. Run **Uji gambar** in Settings to check your route, then save the result. macOS requires Screen Recording permission. See CHANGELOG.md for details.
 
             ### Downloads
             | Platform | File |

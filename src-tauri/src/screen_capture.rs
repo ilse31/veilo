@@ -2,6 +2,7 @@
 
 use base64::Engine;
 use image::{codecs::jpeg::JpegEncoder, imageops::FilterType, DynamicImage, RgbaImage};
+use serde::Serialize;
 
 pub const MAX_SIDE: u32 = 1600;
 pub const JPEG_QUALITY: u8 = 80;
@@ -19,6 +20,12 @@ pub struct Shot {
     pub data_uri: String,
     pub thumbnail: String,
     pub monitor_name: String,
+}
+
+#[derive(Serialize)]
+pub struct MonitorInfo {
+    pub index: usize,
+    pub name: String,
 }
 
 pub fn next_selection(current: Option<usize>, count: usize) -> usize {
@@ -64,6 +71,20 @@ fn sorted_monitors() -> Result<Vec<xcap::Monitor>, String> {
 
 pub fn monitor_count() -> usize {
     sorted_monitors().map(|m| m.len()).unwrap_or(0)
+}
+
+pub fn list_monitors() -> Result<Vec<MonitorInfo>, String> {
+    sorted_monitors()?.into_iter().enumerate().map(|(index, monitor)| {
+        let name = monitor.friendly_name().or_else(|_| monitor.name())
+            .unwrap_or_else(|_| format!("Layar {}", index + 1));
+        Ok(MonitorInfo { index, name })
+    }).collect()
+}
+
+/// A known red image for checking whether an endpoint actually passes images.
+pub fn vision_probe_image() -> Result<String, String> {
+    let image = RgbaImage::from_pixel(32, 32, image::Rgba([255, 0, 0, 255]));
+    encode_data_uri(&image, 32, 90)
 }
 
 pub fn monitor_name(index: usize) -> String {
