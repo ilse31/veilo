@@ -35,6 +35,9 @@
   let monitorToast = $state('')
   let toastTimer: ReturnType<typeof setTimeout> | undefined
   let instText = $state('')
+  let instructionStatus = $state('')
+  let instructionError = $state('')
+  let editingInstruction = $state(false)
 
   const last = $derived(history[history.length - 1] ?? null)
 
@@ -79,11 +82,27 @@
   }
 
   async function submitInstruction() {
+    instructionStatus = ''
+    instructionError = ''
     try {
       await copilotSetCustomInstruction(instText.trim())
-      regenerate()
+      instructionStatus = 'Instruksi diterapkan. Untuk membaca layar dengan instruksi ini, tangkap layar lagi.'
     } catch (e) {
+      instructionError = `Gagal menerapkan instruksi: ${String(e)}`
       console.error(e)
+    }
+  }
+
+  async function focusInstruction(event: PointerEvent) {
+    if (event.button !== 0) return
+    const input = event.currentTarget as HTMLInputElement
+    try {
+      // The card is shown without activation. Activate only when the user
+      // explicitly selects the input so the webview can receive keystrokes.
+      await getCurrentWindow().setFocus()
+      input.focus({ preventScroll: true })
+    } catch (e) {
+      console.error('Failed to focus Copilot input:', e)
     }
   }
 
@@ -132,7 +151,8 @@
           if (dismissAfterMs > 0) {
             setTimeout(() => {
               // Only dismiss if: still showing this suggestion as current, not pinned, no newer arrived
-              if (!pinned && history[history.length - 1]?.id === payload.id) {
+              if (!pinned && !editingInstruction && !instText.trim()
+                  && history[history.length - 1]?.id === payload.id) {
                 getCurrentWindow().hide()
               }
             }, dismissAfterMs)
@@ -271,12 +291,20 @@
     <input 
       type="text" 
       bind:value={instText} 
+      oninput={() => { instructionStatus = ''; instructionError = '' }}
+      aria-label="Instruksi Copilot"
+      onpointerdown={focusInstruction}
+      onfocus={() => editingInstruction = true}
+      onblur={() => editingInstruction = false}
       onkeydown={handleInstKeydown}
       placeholder="Ketik instruksi khusus (misal: 'buat code saja')..." 
       class="inst-input"
     />
     <button onclick={submitInstruction} class="inst-send" title="Kirim instruksi">➔</button>
   </div>
+
+  {#if instructionStatus}<div class="inst-feedback" role="status">{instructionStatus}</div>{/if}
+  {#if instructionError}<div class="inst-feedback" role="alert">{instructionError}</div>{/if}
 
   <div class="footer">
     <span class="count">{history.length > 0 ? `${history.length} tanya-jawab` : ''}</span>
@@ -411,6 +439,7 @@
   .tr-empty { color: #666; font-style: italic; }
 
   /* Real-time instructions style */
+  .inst-feedback { padding: 4px 12px 8px; font-size: 11px; color: #b9c0ff; }
   .inst-box {
     display: flex;
     align-items: center;

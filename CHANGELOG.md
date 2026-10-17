@@ -1,5 +1,20 @@
 # Changelog
 
+## v1.4.0
+
+### Added
+- **Read my screen.** Use Ctrl+Alt+S to capture the monitor under the cursor, or Ctrl+Alt+M to choose a monitor. A vision-capable model reads the screenshot and streams its answer into the Copilot card.
+- **Vision model selection.** The model picker shows image support reported by the provider or inferred from the model name, with a manual override for models whose capability is unknown.
+- **Screen context.** Optionally include the latest Copilot transcript with a screenshot. Custom instructions entered in the Copilot card, including a preferred programming language, also apply to the next screen capture.
+
+### Fixed
+- The Copilot instruction input requests keyboard focus when selected and the card stays open while it is being edited.
+- Empty image responses and interrupted streams show a visible message instead of leaving an unfinished answer.
+
+### Notes
+- Screen reading requires a provider route that passes image inputs to the selected model. On 9router, Antigravity Claude routes may report vision support yet omit the image; an Antigravity Gemini vision route worked in local testing.
+- macOS requires Screen Recording permission before capture.
+
 ## v1.3.0
 
 ### Added

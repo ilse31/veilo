@@ -14,6 +14,8 @@ pub const QUESTION: &str = "Baca layar";
 
 #[derive(Default)]
 pub struct ScreenState {
+    /// Latest instruction from the Copilot card, including without an audio session.
+    pub custom_instruction: Mutex<String>,
     /// Bumped by every request; a streaming task stops when it no longer matches.
     pub generation: AtomicU64,
     /// Bumped by every cycle press; only the latest press captures.
@@ -68,12 +70,16 @@ pub fn vision_gate(model: &str, overrides: &[String], provider_flag: bool) -> Re
     ))
 }
 
-pub fn system_prompt(force_indonesian: bool) -> String {
+pub fn system_prompt(force_indonesian: bool, custom_instruction: &str) -> String {
     let mut s = String::from(
         "Kamu asisten yang membaca tangkapan layar pengguna. Pahami apa yang tampil \
          (soal, kode, pesan, form, dokumen) lalu langsung beri jawaban atau bantuan yang \
          paling berguna, singkat dan to the point. Jika ada pertanyaan/soal di layar, jawab itu.",
     );
+    if !custom_instruction.trim().is_empty() {
+        s.push_str("\n\nInstruksi khusus pengguna (termasuk bahasa pemrograman yang diminta):\n");
+        s.push_str(custom_instruction.trim());
+    }
     if force_indonesian {
         s.push_str("\n\nSELALU tulis jawabanmu dalam Bahasa Indonesia.");
     }
@@ -238,8 +244,12 @@ pub async fn run(app: AppHandle, choice: MonitorChoice) {
         id: id.clone(), question: question.clone(), thumbnail: shot.thumbnail.clone(),
     });
 
-    // 4. Stream.
-    let messages = build_messages(&system_prompt(force_id), &context, &shot.data_uri);
+    // 4. Include explicit user instructions even when transcript context is off.
+    let instruction = match state.custom_instruction.lock() {
+        Ok(value) => value.clone(),
+        Err(e) => { notice(&app, &id, &question, &format!("Gagal membaca instruksi: {e}")); return; }
+    };
+    let messages = build_messages(&system_prompt(force_id, &instruction), &context, &shot.data_uri);
     let body = serde_json::json!({ "model": model, "messages": messages, "stream": true });
     let client = match reqwest::Client::builder().connect_timeout(Duration::from_secs(15)).build() {
         Ok(c) => c,
@@ -346,6 +356,27 @@ pub fn trigger_cycle(app: AppHandle) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn screen_request_includes_instruction_and_image_without_transcript() {
+        let instruction = "Jika soal perlu koding, gunakan TypeScript.";
+        let prompt = system_prompt(false, instruction);
+        let messages = build_messages(&prompt, "", "data:image/jpeg;base64,AAAA");
+        assert!(messages[0]["content"].as_str().unwrap().contains(instruction));
+        assert_eq!(messages[1]["content"][1]["image_url"]["url"], "data:image/jpeg;base64,AAAA");
+    }
+
+    #[test]
+    fn screen_instruction_preserves_indonesian_preference() {
+        let prompt = system_prompt(true, "Gunakan TypeScript.");
+        assert!(prompt.contains("Gunakan TypeScript."));
+        assert!(prompt.contains("SELALU tulis jawabanmu dalam Bahasa Indonesia."));
+    }
+
+    #[test]
+    fn blank_instruction_does_not_add_an_instruction_section() {
+        assert!(!system_prompt(false, "  ").contains("Instruksi khusus pengguna"));
+    }
 
     #[test]
     fn gate_rejects_unknown_text_model_and_names_it() {

@@ -816,13 +816,13 @@ pub fn copilot_set_force_indonesian(
 #[tauri::command]
 pub fn copilot_set_custom_instruction(
     state: tauri::State<'_, CopilotState>,
+    screen: tauri::State<'_, crate::screen_ask::ScreenState>,
     instruction: String,
 ) -> Result<(), String> {
+    *screen.custom_instruction.lock().map_err(|e| e.to_string())? = instruction.clone();
     let guard = state.0.lock().map_err(|e| e.to_string())?;
     if let Some(session) = guard.as_ref() {
-        if let Ok(mut inst_lock) = session.orchestrator.custom_instruction.lock() {
-            *inst_lock = instruction;
-        }
+        *session.orchestrator.custom_instruction.lock().map_err(|e| e.to_string())? = instruction;
         session.orchestrator.force_regenerate();
     }
     Ok(())

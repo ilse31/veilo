@@ -97,17 +97,15 @@ jobs:
             Your quiet AI companion.
 
             ### New
-            - Deepgram streaming speech-to-text with live partial results and its own API key.
-            - Microphone input and a combined mode (other party's audio + your voice).
-            - Chat-style Q&A: one answer per spoken question.
-            - Live transcript panel and an "always Indonesian" toggle for transcripts and answers.
-            - Session summaries render as Markdown.
+            - Read a monitor with Ctrl+Alt+S, or choose one with Ctrl+Alt+M, and get a vision-model answer in the Copilot card.
+            - Model picker marks image-capable models and supports a manual override.
+            - Optionally add the latest Copilot transcript and use your custom instructions when reading the screen.
 
             ### Fixed
-            - macOS loopback lost most of the audio with Bluetooth headsets in hands-free mode.
-            - Invalid AI endpoint URLs now fail fast with a clear message.
+            - The Copilot instruction input receives keyboard focus when selected.
+            - Empty or interrupted screen answers now show a clear message.
 
-            macOS system-audio capture requires macOS 14.2 or later. See CHANGELOG.md for details.
+            Screen reading requires an image-capable model and provider route. macOS requires Screen Recording permission. See CHANGELOG.md for details.
 
             ### Downloads
             | Platform | File |

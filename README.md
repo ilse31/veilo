@@ -1,6 +1,6 @@
 # Veilo
 
-[Download v1.0.0](https://github.com/ilse31/veilo/releases/tag/v1.0.0) · [Website](https://ilse31.github.io/veilo/)
+[Download latest release](https://github.com/ilse31/veilo/releases/latest) · [Website](https://ilse31.github.io/veilo/)
 
 > Your quiet AI companion.
 
