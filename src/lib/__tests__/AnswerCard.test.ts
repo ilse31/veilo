@@ -14,9 +14,10 @@ vi.mock('@tauri-apps/api/core', () => ({
   invoke: vi.fn(async () => {}),
 }))
 vi.mock('@tauri-apps/api/window', () => ({
-  getCurrentWindow: () => ({ hide, setFocus }),
+  getCurrentWindow: () => ({ label: 'copilot-card', hide, setFocus }),
 }))
 
+import RootPage from '../../routes/+page.svelte'
 import AnswerCard from '$lib/components/copilot/AnswerCard.svelte'
 import { settings } from '$lib/stores/settings.svelte'
 
@@ -27,6 +28,11 @@ afterEach(() => {
 
 describe('AnswerCard', () => {
   beforeEach(() => vi.clearAllMocks())
+
+  it('renders the answer card when the release window loads the root page', () => {
+    render(RootPage)
+    expect(screen.getByRole('textbox', { name: 'Tanya AI' })).toBeTruthy()
+  })
 
   it('renders empty placeholder when no suggestion', () => {
     render(AnswerCard)

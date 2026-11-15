@@ -96,17 +96,8 @@ jobs:
 
             Your quiet AI companion.
 
-            ### New
-            - Ask AI directly from the Copilot card, with persistent instructions in a separate field.
-            - Choose a monitor, preview its screenshot, add a question, and confirm before sending it to AI.
-            - Test whether the selected provider route actually delivers an image to the model.
-
-            ### Improved
-            - Read 9router-style vision capability metadata from the model list.
-            - Accept OpenAI-compatible API bases with or without `/v1`.
-            - Close the Copilot card after standalone questions or screen reading.
-
-            Screen reading requires an image-capable model and provider route. Run **Uji gambar** in Settings to check your route, then save the result. macOS requires Screen Recording permission. See CHANGELOG.md for details.
+            ### Fixed
+            - The Copilot card now appears when starting a session in the installed app.
 
             ### Downloads
             | Platform | File |

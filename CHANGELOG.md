@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.5.1
+
+### Fixed
+- The Copilot card now appears when starting a session in the installed app.
+
 ## v1.5.0
 
 ### Added
