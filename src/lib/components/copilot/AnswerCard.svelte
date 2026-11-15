@@ -4,7 +4,9 @@
   import { invoke } from '@tauri-apps/api/core'
   import { getCurrentWindow } from '@tauri-apps/api/window'
   import { settings } from '$lib/stores/settings.svelte'
-  import { copilotSetCustomInstruction, copilotSetForceIndonesian } from '$lib/copilot/api'
+  import {
+    copilotSetCustomInstruction, copilotSetForceIndonesian, copilotSuggestionLanguage, type SuggestionLanguage,
+  } from '$lib/copilot/api'
   import { getConfig } from '$lib/tauri'
   import { askCopilot } from '$lib/screen'
   import ScreenCaptureDialog from './ScreenCaptureDialog.svelte'
@@ -44,6 +46,21 @@
   let instructionStatus = $state('')
   let instructionError = $state('')
   let editingInstruction = $state(false)
+  let suggestionLanguage = $state<SuggestionLanguage>('auto')
+  let languageBusy = $state(true)
+  let languageError = $state('')
+
+  async function updateSuggestionLanguage(language?: SuggestionLanguage) {
+    languageBusy = true
+    languageError = ''
+    try {
+      suggestionLanguage = await copilotSuggestionLanguage(language)
+    } catch {
+      languageError = 'Gagal mengatur bahasa saran Copilot.'
+    } finally {
+      languageBusy = false
+    }
+  }
 
   const last = $derived(history[history.length - 1] ?? null)
 
@@ -143,6 +160,7 @@
   onMount(() => {
     let unsubs: Array<() => void> = []
     getConfig().then(c => { forceId = !!c.force_indonesian }).catch(() => {})
+    updateSuggestionLanguage()
 
     const setup = async () => {
       const offDelta = await listen<{id:string, question:string, delta:string, format:Format}>(
@@ -263,8 +281,18 @@
     <span class="status-dot" class:done={last?.done} class:loading={last && !last.done}></span>
     <span class="title">Copilot</span>
     <button class="x tr-toggle id-toggle" class:active={forceId} onclick={toggleForceId}
-            title="Selalu Bahasa Indonesia: terjemahkan transkrip dan jawaban walau lawan bicara memakai bahasa lain"
+            title="Terjemahkan transkrip ke bahasa Indonesia dan gunakan bahasa Indonesia saat bahasa saran otomatis"
             aria-label="Selalu Bahasa Indonesia">ID</button>
+    <button class="x tr-toggle id-toggle" class:active={suggestionLanguage === 'en'}
+            aria-pressed={suggestionLanguage === 'en'} disabled={languageBusy}
+            onclick={() => updateSuggestionLanguage(suggestionLanguage === 'en' ? 'auto' : 'en')}
+            title="Saran berikutnya dalam bahasa Inggris. Klik lagi untuk kembali ke otomatis."
+            aria-label="Bahasa saran Inggris">EN</button>
+    <button class="x tr-toggle id-toggle" class:active={suggestionLanguage === 'jp'}
+            aria-pressed={suggestionLanguage === 'jp'} disabled={languageBusy}
+            onclick={() => updateSuggestionLanguage(suggestionLanguage === 'jp' ? 'auto' : 'jp')}
+            title="Saran berikutnya dalam bahasa Jepang (romaji). Klik lagi untuk kembali ke otomatis."
+            aria-label="Bahasa saran Jepang (romaji)">JP</button>
     <button class="x tr-toggle" class:active={showTranscript} onclick={toggleTranscript}
             title="Tampilkan/sembunyikan transkrip" aria-label="Transkrip">🎙</button>
     <button class="x" onclick={dismiss} aria-label="Tutup">✕</button>
@@ -272,6 +300,7 @@
 
   <div class="screen-toolbar"><ScreenCaptureDialog /></div>
 
+  {#if languageError}<div class="inst-feedback error" role="alert">{languageError}</div>{/if}
   {#if monitorToast}<div class="toast">{monitorToast}</div>{/if}
   <div class="body chat" bind:this={chatEl}>
     {#if history.length === 0}

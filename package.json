@@ -1,6 +1,6 @@
 {
   "name": "veilo",
-  "version": "1.5.1",
+  "version": "1.5.2",
   "description": "Veilo — Your quiet AI companion.",
   "type": "module",
   "scripts": {

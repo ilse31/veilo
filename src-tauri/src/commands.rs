@@ -474,6 +474,7 @@ fn stt_language_opt(lang: &str) -> Option<String> {
 use std::sync::Arc;
 use crate::copilot::orchestrator::Orchestrator;
 use crate::copilot::preset::{builtin_presets, find_preset, Preset};
+use crate::copilot::orchestrator::SuggestionLanguage;
 use crate::copilot::session::{ActiveSession, CopilotState, SessionStatus};
 use crate::copilot::stt::{whisper_cloud::WhisperCloudStt, SttBackend};
 
@@ -778,6 +779,18 @@ pub async fn copilot_stop_session(
 
     let _ = app.emit("copilot-session-ended", serde_json::json!({ "id": session.id }));
     Ok(())
+}
+
+#[tauri::command]
+pub fn copilot_suggestion_language(
+    state: tauri::State<std::sync::Mutex<SuggestionLanguage>>,
+    language: Option<SuggestionLanguage>,
+) -> Result<SuggestionLanguage, String> {
+    let mut current = state.lock().map_err(|e| e.to_string())?;
+    if let Some(language) = language {
+        *current = language;
+    }
+    Ok(*current)
 }
 
 #[tauri::command]

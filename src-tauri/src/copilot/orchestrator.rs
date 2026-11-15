@@ -2,7 +2,7 @@
 //! OpenAI-compatible LLM endpoint with streaming. Emits `copilot-suggest-delta`
 //! and `copilot-suggest-done` events.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -12,6 +12,15 @@ use tokio::time::sleep;
 
 use crate::copilot::preset::{Preset, ResponseFormat};
 use crate::copilot::transcript::{TranscriptBuffer, TranscriptChunk};
+
+#[derive(Clone, Copy, Default, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SuggestionLanguage {
+    #[default]
+    Auto,
+    En,
+    Jp,
+}
 
 #[derive(Serialize, Clone)]
 struct SuggestDelta {
@@ -209,7 +218,12 @@ impl Orchestrator {
             .unwrap_or_default()
     }
 
-    pub fn build_messages(&self, context_text: &str, question: &str) -> Vec<serde_json::Value> {
+    fn build_messages(
+        &self,
+        context_text: &str,
+        question: &str,
+        language: SuggestionLanguage,
+    ) -> Vec<serde_json::Value> {
         let mut system_prompt = self.config.preset.system_prompt.clone();
         if !self.config.custom_context.is_empty() {
             system_prompt.push_str(&format!("\n\nUser Background Context (e.g. CV / Interview Info):\n{}", self.config.custom_context));
@@ -219,12 +233,16 @@ impl Orchestrator {
                 system_prompt.push_str(&format!("\n\nCustom Real-time Instruction:\n{}", *inst_lock));
             }
         }
-        if self.force_indonesian.load(Ordering::Relaxed) {
-            system_prompt.push_str(
+        system_prompt.push_str(match language {
+            SuggestionLanguage::En =>
+                "\n\nAnswer in English, regardless of the transcript language or earlier language instructions.",
+            SuggestionLanguage::Jp =>
+                "\n\nAnswer in Japanese written entirely in romaji (Latin letters). Do not use kanji, hiragana, or katakana. This overrides earlier language instructions.",
+            SuggestionLanguage::Auto if self.force_indonesian.load(Ordering::Relaxed) =>
                 "\n\nBahasa: Pengguna berbahasa Indonesia, tetapi lawan bicara mungkin memakai bahasa lain. \
                  Pahami ucapan dalam bahasa apa pun, namun SELALU tulis jawabanmu dalam Bahasa Indonesia.",
-            );
-        }
+            SuggestionLanguage::Auto => "",
+        });
         vec![
             serde_json::json!({
                 "role": "system",
@@ -293,7 +311,8 @@ impl Orchestrator {
         *self.last_trigger.lock().unwrap() = Some(Instant::now());
         *self.last_question.lock().unwrap() = Some((question.clone(), context.clone()));
 
-        let messages = self.build_messages(&context, &question);
+        let language = *app.state::<Mutex<SuggestionLanguage>>().lock().unwrap();
+        let messages = self.build_messages(&context, &question, language);
         let id = uuid::Uuid::new_v4().to_string();
         let format = self.config.preset.response_format;
         let api_url = self.config.api_url.trim_end_matches('/').to_string();
@@ -417,7 +436,7 @@ mod tests {
     #[test]
     fn build_messages_includes_system_and_user() {
         let o = Orchestrator::new(cfg());
-        let messages = o.build_messages("earlier talk", "hello world");
+        let messages = o.build_messages("earlier talk", "hello world", SuggestionLanguage::Auto);
         assert_eq!(messages.len(), 2);
         assert_eq!(messages[0]["role"], "system");
         assert_eq!(messages[1]["role"], "user");
@@ -429,11 +448,26 @@ mod tests {
     #[test]
     fn force_indonesian_adds_language_rule_to_system_prompt() {
         let o = Orchestrator::new(cfg());
-        let off = o.build_messages("", "q");
+        let off = o.build_messages("", "q", SuggestionLanguage::Auto);
         assert!(!off[0]["content"].as_str().unwrap().contains("Bahasa Indonesia"));
         o.force_indonesian.store(true, Ordering::Relaxed);
-        let on = o.build_messages("", "q");
+        let on = o.build_messages("", "q", SuggestionLanguage::Auto);
         assert!(on[0]["content"].as_str().unwrap().contains("SELALU tulis jawabanmu dalam Bahasa Indonesia"));
+    }
+
+    #[test]
+    fn explicit_suggestion_languages_override_indonesian() {
+        let o = Orchestrator::new(cfg());
+        o.force_indonesian.store(true, Ordering::Relaxed);
+        for (language, expected) in [
+            (SuggestionLanguage::En, "Answer in English"),
+            (SuggestionLanguage::Jp, "Japanese written entirely in romaji"),
+        ] {
+            let messages = o.build_messages("", "q", language);
+            let prompt = messages[0]["content"].as_str().unwrap();
+            assert!(prompt.contains(expected));
+            assert!(!prompt.contains("tulis jawabanmu dalam Bahasa Indonesia"));
+        }
     }
 
     #[test]

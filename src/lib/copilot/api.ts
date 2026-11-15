@@ -70,6 +70,12 @@ export async function copilotSetForceIndonesian(enabled: boolean): Promise<void>
   return invoke('copilot_set_force_indonesian', { enabled })
 }
 
+export type SuggestionLanguage = 'auto' | 'en' | 'jp'
+
+export function copilotSuggestionLanguage(language?: SuggestionLanguage): Promise<SuggestionLanguage> {
+  return invoke('copilot_suggestion_language', { language })
+}
+
 export async function copilotStopSession(): Promise<void> {
   return invoke('copilot_stop_session')
 }

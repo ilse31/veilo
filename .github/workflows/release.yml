@@ -96,8 +96,8 @@ jobs:
 
             Your quiet AI companion.
 
-            ### Fixed
-            - The Copilot card now appears when starting a session in the installed app.
+            ### Added
+            - Choose EN for English or JP for Japanese in romaji on the Copilot card. The choice applies to upcoming transcript suggestions. Click the active button again to return to automatic language selection.
 
             ### Downloads
             | Platform | File |

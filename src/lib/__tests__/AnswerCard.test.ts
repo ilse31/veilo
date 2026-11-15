@@ -39,6 +39,29 @@ describe('AnswerCard', () => {
     expect(screen.getByText(/tanya ai atau baca layar/i)).toBeTruthy()
   })
 
+  it('changes the language for future suggestions without regenerating an answer', async () => {
+    const { invoke } = await import('@tauri-apps/api/core')
+    vi.mocked(invoke).mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce('auto').mockResolvedValueOnce('en')
+      .mockResolvedValueOnce('jp').mockResolvedValueOnce('auto')
+    render(AnswerCard)
+    const english = screen.getByRole('button', { name: 'Bahasa saran Inggris' })
+    const japanese = screen.getByRole('button', { name: 'Bahasa saran Jepang (romaji)' })
+    await waitFor(() => expect((english as HTMLButtonElement).disabled).toBe(false))
+
+    await fireEvent.click(english)
+    expect(english.getAttribute('aria-pressed')).toBe('true')
+    expect(invoke).toHaveBeenCalledWith('copilot_suggestion_language', { language: 'en' })
+    await fireEvent.click(japanese)
+    expect(english.getAttribute('aria-pressed')).toBe('false')
+    expect(japanese.getAttribute('aria-pressed')).toBe('true')
+    expect(invoke).toHaveBeenCalledWith('copilot_suggestion_language', { language: 'jp' })
+    await fireEvent.click(japanese)
+    expect(japanese.getAttribute('aria-pressed')).toBe('false')
+    expect(invoke).toHaveBeenCalledWith('copilot_suggestion_language', { language: 'auto' })
+    expect(invoke).not.toHaveBeenCalledWith('copilot_force_regenerate')
+  })
+
   it('subscribes to copilot-suggest-delta on mount', async () => {
     const { listen } = await import('@tauri-apps/api/event')
     render(AnswerCard)

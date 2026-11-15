@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.5.2
+
+### Added
+- Choose EN for English or JP for Japanese in romaji on the Copilot card. The choice applies to upcoming transcript suggestions. Click the active button again to return to automatic language selection.
+
 ## v1.5.1
 
 ### Fixed

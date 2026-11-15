@@ -90,6 +90,7 @@ pub fn run() {
         .manage(commands::SttState(std::sync::Mutex::new(None)))
         .manage(chat::ChatAbortState::default())
         .manage(screen_ask::ScreenState::default())
+        .manage(std::sync::Mutex::new(copilot::orchestrator::SuggestionLanguage::default()))
         .setup(|app| {
             let app_data_dir = app.path().app_data_dir()?;
             storage_migration::migrate(&app_data_dir).map_err(|error| {
@@ -421,6 +422,7 @@ pub fn run() {
             commands::copilot_session_status,
             commands::copilot_list_input_devices,
             commands::copilot_set_force_indonesian,
+            commands::copilot_suggestion_language,
             commands::copilot_start_session,
             commands::copilot_stop_session,
             commands::copilot_force_regenerate,
