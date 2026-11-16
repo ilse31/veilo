@@ -266,10 +266,7 @@ impl Orchestrator {
     /// Translate one finalized utterance to Indonesian and emit
     /// `copilot-transcript-translated` so the UI can show it.
     async fn translate_and_emit(&self, app: &AppHandle, chunk: TranscriptChunk) {
-        let url = format!(
-            "{}/v1/chat/completions",
-            self.config.api_url.trim_end_matches('/')
-        );
+        let url = crate::screen_ask::chat_endpoint(&self.config.api_url);
         let Ok(client) = reqwest::Client::builder()
             .timeout(Duration::from_secs(20))
             .build()
@@ -334,7 +331,7 @@ impl Orchestrator {
                 "messages": messages,
                 "stream": true,
             });
-            let resp = client.post(format!("{api_url}/v1/chat/completions"))
+            let resp = client.post(crate::screen_ask::chat_endpoint(&api_url))
                 .bearer_auth(api_key)
                 .json(&body)
                 .send().await;
@@ -375,8 +372,25 @@ impl Orchestrator {
                         }
                     }
                 }
-                Ok(r) => eprintln!("[orchestrator] HTTP {}", r.status()),
-                Err(e) => eprintln!("[orchestrator] request error: {e}"),
+                Ok(r) => {
+                    let status = r.status();
+                    eprintln!("[orchestrator] HTTP {status}");
+                    let _ = app_inner.emit("copilot-suggest-delta", SuggestDelta {
+                        id:       id_inner.clone(),
+                        question: question.clone(),
+                        delta:    format!("⚠ Endpoint AI error (HTTP {status}). Periksa URL/API key/model di Pengaturan → Koneksi."),
+                        format,
+                    });
+                }
+                Err(e) => {
+                    eprintln!("[orchestrator] request error: {e}");
+                    let _ = app_inner.emit("copilot-suggest-delta", SuggestDelta {
+                        id:       id_inner.clone(),
+                        question: question.clone(),
+                        delta:    format!("⚠ Tidak bisa menghubungi endpoint AI: {e}"),
+                        format,
+                    });
+                }
             }
 
             let _ = app_inner.emit("copilot-suggest-done", SuggestDone {

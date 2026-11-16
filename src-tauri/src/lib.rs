@@ -78,6 +78,23 @@ pub const INJECT_BOOTSTRAP: &str = r#"
 })();
 "#;
 
+/// True when the logical point (x, y) falls inside any connected monitor's
+/// logical bounds. Used to discard stale saved window positions.
+fn logical_point_on_any_monitor(app: &tauri::AppHandle, x: i32, y: i32) -> bool {
+    match app.available_monitors() {
+        Ok(monitors) => monitors.iter().any(|m| {
+            let s = m.scale_factor();
+            let lx = m.position().x as f64 / s;
+            let ly = m.position().y as f64 / s;
+            let lw = m.size().width as f64 / s;
+            let lh = m.size().height as f64 / s;
+            x as f64 >= lx && (x as f64) < lx + lw && y as f64 >= ly && (y as f64) < ly + lh
+        }),
+        // If monitors can't be enumerated, trust the saved position.
+        Err(_) => true,
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -217,7 +234,7 @@ pub fn run() {
             } else {
                 WebviewUrl::App("index.html".into())
             };
-            let copilot_card = WebviewWindowBuilder::new(app, "copilot-card", card_url)
+            let mut card_builder = WebviewWindowBuilder::new(app, "copilot-card", card_url)
                 .title("Veilo — Copilot")
                 .decorations(false)
                 .shadow(false)
@@ -228,28 +245,62 @@ pub fn run() {
                 .min_inner_size(320.0, 240.0)
                 .resizable(true)
                 .transparent(true)
-                .visible(false)
-                .build()?;
+                .visible(false);
+
+            // Restore the last dragged position, but only if it still lands on
+            // a connected monitor — otherwise the card would be unreachable.
+            if let Some((x, y)) = cfg.copilot_position {
+                if logical_point_on_any_monitor(app.handle(), x, y) {
+                    card_builder = card_builder.position(x as f64, y as f64);
+                }
+            }
+
+            let copilot_card = card_builder.build()?;
             protection::apply(&copilot_card);
 
             // Prevent Copilot Card window from destroying itself on close and stop the session
             {
                 let copilot_card_clone = copilot_card.clone();
                 let app_handle = app.handle().clone();
+                let move_counter = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
                 copilot_card.on_window_event(move |event| {
-                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                        api.prevent_close();
-                        let _ = copilot_card_clone.hide();
+                    match event {
+                        tauri::WindowEvent::CloseRequested { api, .. } => {
+                            api.prevent_close();
+                            let _ = copilot_card_clone.hide();
 
-                        // Stop the active copilot session when window is closed
-                        let app_clone = app_handle.clone();
-                        tauri::async_runtime::spawn(async move {
-                            let state = app_clone.try_state::<crate::copilot::session::CopilotState>();
-                            let db = app_clone.try_state::<crate::db::Db>();
-                            if let (Some(state), Some(db)) = (state, db) {
-                                let _ = commands::copilot_stop_session(app_clone.clone(), state, db).await;
+                            // Stop the active copilot session when window is closed
+                            let app_clone = app_handle.clone();
+                            tauri::async_runtime::spawn(async move {
+                                let state = app_clone.try_state::<crate::copilot::session::CopilotState>();
+                                let db = app_clone.try_state::<crate::db::Db>();
+                                if let (Some(state), Some(db)) = (state, db) {
+                                    let _ = commands::copilot_stop_session(app_clone.clone(), state, db).await;
+                                }
+                            });
+                        }
+                        tauri::WindowEvent::Moved(pos) => {
+                            if let Ok(scale) = copilot_card_clone.scale_factor() {
+                                let logical_x = (pos.x as f64 / scale) as i32;
+                                let logical_y = (pos.y as f64 / scale) as i32;
+
+                                let version = move_counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+                                let move_counter_clone = move_counter.clone();
+                                let app_handle_clone = app_handle.clone();
+
+                                tauri::async_runtime::spawn(async move {
+                                    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                                    if move_counter_clone.load(std::sync::atomic::Ordering::SeqCst) == version {
+                                        if let Ok(dir) = app_handle_clone.path().app_data_dir() {
+                                            let mut cfg = config::read_config(&dir);
+                                            cfg.copilot_position = Some((logical_x, logical_y));
+                                            let _ = config::write_config(&dir, &cfg);
+                                        }
+                                    }
+                                });
                             }
-                        });
+                        }
+                        _ => {}
                     }
                 });
             }

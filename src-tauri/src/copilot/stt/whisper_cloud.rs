@@ -133,7 +133,7 @@ impl SttBackend for WhisperCloudStt {
                     if let Some(ref lang) = language {
                         form = form.text("language", lang.clone());
                     }
-                    let req = client.post(format!("{api_url}/v1/audio/transcriptions"))
+                    let req = client.post(crate::screen_ask::api_v1_endpoint(&api_url, "audio/transcriptions"))
                         .bearer_auth(&api_key)
                         .multipart(form);
 

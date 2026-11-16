@@ -34,6 +34,9 @@ pub struct Config {
     /// the other party speaks (translated by the AI endpoint).
     #[serde(default)]
     pub force_indonesian: bool,
+    /// Last on-screen position of the floating copilot card window.
+    #[serde(default)]
+    pub copilot_position: Option<(i32, i32)>,
 }
 
 impl Default for Config {
@@ -55,6 +58,7 @@ impl Default for Config {
             audio_source:           "system".into(),
             mic_device:             String::new(),
             force_indonesian:       false,
+            copilot_position:       None,
         }
     }
 }
@@ -124,6 +128,7 @@ mod tests {
             audio_source: "microphone".into(),
             mic_device: "USB Mic".into(),
             force_indonesian: true,
+            copilot_position: Some((50, 60)),
         };
         write_config(&dir.path().to_path_buf(), &config).unwrap();
         let loaded = read_config(&dir.path().to_path_buf());

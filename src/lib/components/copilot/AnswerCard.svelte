@@ -274,10 +274,24 @@
   function regenerate() {
     invoke('copilot_force_regenerate')
   }
+
+  // The window is frameless, so the header acts as the drag handle.
+  // data-tauri-drag-region alone isn't enough: Tauri only starts a drag when
+  // the mousedown target itself carries the attribute, and the header's
+  // children (title, dot, buttons) cover almost all of it.
+  async function startDrag(e: PointerEvent) {
+    if (e.button !== 0) return
+    if ((e.target as HTMLElement).closest('button, input, textarea, summary, a')) return
+    try {
+      await getCurrentWindow().startDragging()
+    } catch (err) {
+      console.error('Failed to drag copilot window:', err)
+    }
+  }
 </script>
 
 <div class="card" class:pulse>
-  <div class="header" data-tauri-drag-region>
+  <div class="header" role="toolbar" tabindex="-1" onpointerdown={startDrag}>
     <span class="status-dot" class:done={last?.done} class:loading={last && !last.done}></span>
     <span class="title">Copilot</span>
     <button class="x tr-toggle id-toggle" class:active={forceId} onclick={toggleForceId}
@@ -416,7 +430,7 @@
   .header {
     display: flex; align-items: center; gap: 8px;
     padding: 8px 12px; border-bottom: 1px solid rgba(255,255,255,0.06);
-    font-size: 12px; user-select: none;
+    font-size: 12px; user-select: none; cursor: move;
   }
   .status-dot {
     width: 8px; height: 8px; border-radius: 50%; background: #555;

@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.5.3
+
+### Added
+- **Draggable Copilot card.** Drag the floating Copilot window by its header to reposition it. The position is remembered across sessions and restored on the next launch.
+- **Endpoint errors shown in the card.** If the AI endpoint fails (HTTP error or unreachable), the Copilot card now shows a visible warning instead of silently producing no answer.
+
+### Fixed
+- Speech utterances were never finalized while the other party went quiet — WASAPI loopback delivers no audio callbacks during silence, so the STT backend never heard the trailing silence it needs. A watchdog now feeds real-time silence during capture gaps.
+- AI endpoint URLs ending in `/v1` (or not) now resolve correctly for Copilot suggestions, translation, and Whisper transcription.
+
 ## v1.5.2
 
 ### Added

@@ -7,13 +7,22 @@
 //! across callbacks); avoid unnecessary tx.clone in single-consumer path.
 
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicU64, Ordering},
     Arc,
 };
 use tokio::sync::mpsc;
 
 const TARGET_SAMPLE_RATE: u32 = 16_000;
 const CHUNK_SAMPLES: usize = 1_600; // 100ms at 16kHz mono
+
+/// Wall-clock millis for the loopback silence watchdog.
+#[cfg(target_os = "windows")]
+fn millis_now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
 
 /// Snap a measured frames-per-second figure to the nearest standard audio
 /// sample rate. The macOS tap's advertised format can disagree with what the
@@ -94,9 +103,19 @@ pub fn start_loopback() -> Result<AudioCapture, String> {
         let tx_inner = tx;
         let err_fn = |e| eprintln!("[audio] stream error: {e}");
 
+        // WASAPI loopback delivers no callbacks while nothing is rendering,
+        // so the STT backend never hears the trailing silence it needs to
+        // finalize an utterance (Deepgram endpointing / utterance_end, Whisper
+        // VAD). Feed real-time silence during capture gaps.
+        let last_audio = Arc::new(AtomicU64::new(millis_now()));
+        let last_for_cb = last_audio.clone();
+        let wd_stop = stop_for_thread.clone();
+        let tx_wd = tx_inner.clone();
+
         let stream = device.build_input_stream(
             &stream_config,
             move |data: &[f32], _| {
+                last_for_cb.store(millis_now(), Ordering::Relaxed);
                 // Downmix to mono + naive linear resample to 16kHz
                 let mut i = 0.0_f32;
                 while (i as usize) * channels < data.len() {
@@ -133,9 +152,23 @@ pub fn start_loopback() -> Result<AudioCapture, String> {
             return;
         }
 
+        let watchdog = std::thread::spawn(move || {
+            while !wd_stop.load(Ordering::Relaxed) {
+                std::thread::sleep(std::time::Duration::from_millis(50));
+                let now = millis_now();
+                if now.saturating_sub(last_audio.load(Ordering::Relaxed)) < 150 {
+                    continue;
+                }
+                if tx_wd.try_send(vec![0.0; CHUNK_SAMPLES]).is_ok() {
+                    last_audio.store(now, Ordering::Relaxed);
+                }
+            }
+        });
+
         while !stop_for_thread.load(Ordering::Relaxed) {
             std::thread::sleep(std::time::Duration::from_millis(100));
         }
+        let _ = watchdog.join();
         eprintln!("[audio] loopback stop");
         // stream dropped here, releasing WASAPI resources
     });

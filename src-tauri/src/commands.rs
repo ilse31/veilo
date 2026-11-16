@@ -144,9 +144,12 @@ pub fn save_config(app: AppHandle, mut config: Config) -> Result<(), String> {
         let _ = autostart_manager.disable();
     }
 
-    // 3. Preserve window position if incoming is None
+    // 3. Preserve window positions if incoming is None
     if config.position.is_none() {
         config.position = old_config.position;
+    }
+    if config.copilot_position.is_none() {
+        config.copilot_position = old_config.copilot_position;
     }
 
     write_config(&dir, &config)
