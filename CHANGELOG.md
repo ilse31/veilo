@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.5.4
+
+### Improved
+- **Faster Copilot answers.** The delay between the other party finishing a sentence and the AI reply starting is roughly halved: Deepgram endpointing is 0.5s instead of 1s, the orchestrator debounce is 0.4s instead of 1.2s, and the HTTP connection to the AI endpoint is kept warm between suggestions.
+
 ## v1.5.3
 
 ### Added

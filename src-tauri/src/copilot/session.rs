@@ -61,7 +61,7 @@ pub fn build_orchestrator_config(
         preset,
         context_window_s,
         min_interval_s:  app_cfg.copilot_min_interval_s,
-        debounce_ms:     1200,
+        debounce_ms:     400,
         api_url:         "https://api.openai.com".into(),
         api_key:         String::new(),
         model:           app_cfg.whisper_model.clone(),

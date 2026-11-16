@@ -17,10 +17,10 @@ const DEFAULT_LANGUAGE: &str = "multi";
 const SAMPLE_RATE: u32 = 16_000;
 const KEEPALIVE_SECS: u64 = 5;
 /// Silence (ms) before Deepgram marks `speech_final`; also the fallback
-/// `UtteranceEnd` window. ~1s matches the Whisper backend's silence cut, so
-/// the orchestrator sees one chunk per utterance instead of one per phrase.
-const ENDPOINTING_MS: u32 = 1_000;
-const UTTERANCE_END_MS: u32 = 1_500;
+/// `UtteranceEnd` window. Lower values answer sooner but risk splitting a
+/// mid-thought pause into two utterances.
+const ENDPOINTING_MS: u32 = 500;
+const UTTERANCE_END_MS: u32 = 1_000;
 /// Flush a monologue that never pauses, mirroring Whisper's 20s cap.
 const MAX_UTTERANCE_MS: u64 = 20_000;
 

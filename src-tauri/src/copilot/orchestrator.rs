@@ -91,6 +91,9 @@ pub struct Orchestrator {
     last_question: Arc<Mutex<Option<(String, String)>>>,
     force_tx: mpsc::UnboundedSender<()>,
     force_rx: Arc<Mutex<Option<mpsc::UnboundedReceiver<()>>>>,
+    /// Shared HTTP client — reusing it keeps the TLS connection to the AI
+    /// endpoint warm, shaving the handshake off every suggestion.
+    http: reqwest::Client,
 }
 
 impl Orchestrator {
@@ -107,6 +110,10 @@ impl Orchestrator {
             last_question: Arc::new(Mutex::new(None)),
             force_tx,
             force_rx: Arc::new(Mutex::new(Some(force_rx))),
+            http: reqwest::Client::builder()
+                .timeout(Duration::from_secs(30))
+                .build()
+                .unwrap_or_default(),
         }
     }
 
@@ -267,12 +274,7 @@ impl Orchestrator {
     /// `copilot-transcript-translated` so the UI can show it.
     async fn translate_and_emit(&self, app: &AppHandle, chunk: TranscriptChunk) {
         let url = crate::screen_ask::chat_endpoint(&self.config.api_url);
-        let Ok(client) = reqwest::Client::builder()
-            .timeout(Duration::from_secs(20))
-            .build()
-        else {
-            return;
-        };
+        let client = self.http.clone();
         let body = serde_json::json!({
             "model": self.config.model,
             "messages": translation_messages(&chunk.text),
@@ -321,11 +323,8 @@ impl Orchestrator {
         let save = self.config.save_transcript;
         let question_for_db = question.clone();
 
+        let client = self.http.clone();
         tokio::spawn(async move {
-            let client = reqwest::Client::builder()
-                .timeout(Duration::from_secs(30))
-                .build()
-                .expect("reqwest client");
             let body = serde_json::json!({
                 "model": model,
                 "messages": messages,

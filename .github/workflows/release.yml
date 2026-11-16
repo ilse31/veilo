@@ -96,13 +96,8 @@ jobs:
 
             Your quiet AI companion.
 
-            ### Added
-            - Drag the floating Copilot card by its header to reposition it; the position is remembered across launches.
-            - Endpoint failures now show a visible warning inside the Copilot card instead of silently producing no answer.
-
-            ### Fixed
-            - Speech utterances are now finalized during silence — a watchdog feeds real-time silence to the STT backend when WASAPI loopback stops delivering callbacks.
-            - AI endpoint URLs ending in `/v1` (or not) now resolve correctly for Copilot suggestions, translation, and Whisper transcription.
+            ### Improved
+            - Faster Copilot answers: Deepgram endpointing 1s → 0.5s, orchestrator debounce 1.2s → 0.4s, and the HTTP connection to the AI endpoint stays warm between suggestions.
 
             ### Downloads
             | Platform | File |
