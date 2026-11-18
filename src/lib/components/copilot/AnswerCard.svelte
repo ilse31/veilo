@@ -444,7 +444,7 @@
   .empty { color: #666; font-style: italic; text-align: center; padding-top: 40px; }
   .code { background: rgba(255,255,255,0.04); padding: 8px; border-radius: 6px;
           font-family: "Consolas", monospace; font-size: 12px;
-          white-space: pre-wrap; overflow-x: auto; }
+          white-space: pre-wrap; overflow-wrap: anywhere; }
   .md :global(p)          { margin: 0 0 8px; }
   .md :global(p:last-child){ margin-bottom: 0; }
   .md :global(ul), .md :global(ol) { margin: 0 0 8px; padding-left: 18px; }
@@ -455,7 +455,8 @@
                              border-radius: 3px; font-family: "Consolas", monospace;
                              font-size: 11.5px; color: #a8daff; }
   .md :global(pre)        { background: rgba(255,255,255,0.04); padding: 8px;
-                             border-radius: 6px; overflow-x: auto; margin: 0 0 8px; }
+                             border-radius: 6px; margin: 0 0 8px;
+                             white-space: pre-wrap; overflow-wrap: anywhere; }
   .md :global(pre code)   { background: none; padding: 0; color: #e5e5ea;
                              font-size: 12px; }
   .md :global(h1), .md :global(h2), .md :global(h3) {

@@ -96,8 +96,8 @@ jobs:
 
             Your quiet AI companion.
 
-            ### Improved
-            - Faster Copilot answers: Deepgram endpointing 1s → 0.5s, orchestrator debounce 1.2s → 0.4s, and the HTTP connection to the AI endpoint stays warm between suggestions.
+            ### Fixed
+            - Copilot code blocks now wrap long lines instead of requiring horizontal scrolling in narrow windows.
 
             ### Downloads
             | Platform | File |

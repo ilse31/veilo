@@ -181,7 +181,7 @@
   }
   .md :global(pre) {
     background: rgba(127,127,127,0.12); padding: 8px 10px; border-radius: 6px;
-    overflow-x: auto; margin: 0 0 8px;
+    margin: 0 0 8px; white-space: pre-wrap; overflow-wrap: anywhere;
   }
   .md :global(pre code) { background: none; padding: 0; }
   .md :global(blockquote) {
