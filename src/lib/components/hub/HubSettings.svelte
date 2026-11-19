@@ -1,4 +1,9 @@
 <script lang="ts">
+  import { onMount } from 'svelte'
+  import { getVersion } from '@tauri-apps/api/app'
+  import { check, type Update } from '@tauri-apps/plugin-updater'
+  import { relaunch } from '@tauri-apps/plugin-process'
+  import { downloadAndInstall } from '$lib/updater'
   import { getCurrentWindow } from '@tauri-apps/api/window'
   import { getConfig, listInputDevices, saveConfig, setAllContentProtected, setProfileValue, testAiConnection, type ModelInfo } from '$lib/tauri'
   import { settings } from '$lib/stores/settings.svelte'
@@ -11,12 +16,13 @@
     type CustomPresetRow, type ResponseFormat,
   } from '$lib/copilot/api'
 
-  type Tab = 'connection' | 'privacy' | 'shortcuts' | 'copilot'
+  type Tab = 'connection' | 'privacy' | 'shortcuts' | 'copilot' | 'update'
   const tabs: { id: Tab; label: string }[] = [
     { id: 'connection', label: 'Koneksi' },
     { id: 'privacy',    label: 'Privasi & Tampilan' },
     { id: 'shortcuts',  label: 'Pintasan' },
     { id: 'copilot',    label: 'Copilot' },
+    { id: 'update',     label: 'Pembaruan' },
   ]
   let activeTab = $state<Tab>('connection')
 
@@ -31,6 +37,32 @@
   let visionRequestId = 0
   let visionTesting = $state(false)
   let visionResult = $state<VisionProbeResult | null>(null)
+  let curVersion = $state('')
+  let upd = $state<Update | null>(null)
+  let updState = $state<'idle' | 'checking' | 'latest' | 'found' | 'downloading' | 'ready' | 'error'>('idle')
+  let updMsg = $state('')
+  let updPct = $state(0)
+
+  onMount(() => { getVersion().then(v => curVersion = v).catch(() => {}) })
+
+  async function checkUpdateNow() {
+    updState = 'checking'; updMsg = ''; upd = null; updPct = 0
+    try {
+      const u = await check()
+      if (u) { upd = u; updState = 'found' } else updState = 'latest'
+    } catch (e) { updState = 'error'; updMsg = String(e) }
+  }
+
+  async function installUpdate() {
+    if (!upd) return
+    updState = 'downloading'
+    try {
+      await downloadAndInstall(upd, (recv, total) => {
+        updPct = total ? Math.round(recv / total * 100) : 0
+      })
+      updState = 'ready'
+    } catch (e) { updState = 'error'; updMsg = String(e) }
+  }
 
   function resetVisionTest() {
     visionRequestId++
@@ -813,6 +845,58 @@
             </button>
             {#if presetError}
               <span style="font-size:12px;color:var(--red)">{presetError}</span>
+            {/if}
+          </div>
+        </div>
+      </div>
+    {/if}
+
+    {#if activeTab === 'update'}
+      <!-- ── Updates -->
+      <div class="hub-s-section">
+        <div class="head">
+          <div class="t">Pembaruan</div>
+          <div class="d">Veilo memeriksa pembaruan otomatis saat dibuka, dari GitHub Releases.</div>
+        </div>
+
+        <div class="hub-s-row">
+          <div class="label-wrap">
+            <div class="l-name">Versi saat ini</div>
+          </div>
+          <div class="field-wrap" style="flex-direction:row;align-items:center">
+            <span style="font-size:13px;color:var(--text2)">v{curVersion || '…'}</span>
+          </div>
+        </div>
+
+        <div class="hub-s-row">
+          <div class="label-wrap">
+            <div class="l-name">Periksa pembaruan</div>
+            <div class="l-desc">Unduh dan pasang versi terbaru tanpa keluar dari aplikasi.</div>
+          </div>
+          <div class="field-wrap" style="flex-direction:row;align-items:center;gap:10px">
+            {#if updState === 'found'}
+              <button class="hub-btn accent" onclick={installUpdate}>Unduh &amp; pasang v{upd?.version}</button>
+            {:else if updState === 'downloading'}
+              <button class="hub-btn" disabled>Mengunduh… {updPct}%</button>
+            {:else if updState === 'ready'}
+              <button class="hub-btn accent" onclick={() => relaunch()}>Mulai ulang untuk memasang</button>
+            {:else}
+              <button class="hub-btn" onclick={checkUpdateNow} disabled={updState === 'checking'}>
+                {updState === 'checking' ? 'Memeriksa…' : 'Periksa pembaruan'}
+              </button>
+            {/if}
+            {#if updState === 'latest'}
+              <span style="display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--green);font-weight:500">
+                <span class="hub-dot g"></span> Sudah versi terbaru
+              </span>
+            {:else if updState === 'ready'}
+              <span style="display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--green);font-weight:500">
+                <span class="hub-dot g"></span> Terpasang — restart diperlukan
+              </span>
+            {:else if updState === 'error'}
+              <span style="display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--red);font-weight:500">
+                <span class="hub-dot r"></span> {updMsg || 'Gagal memeriksa pembaruan'}
+              </span>
             {/if}
           </div>
         </div>

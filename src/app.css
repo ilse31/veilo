@@ -44,22 +44,22 @@ html, body {
 }
 
 [data-theme="dark"] {
-  --bg:          #0e0e10;
-  --bg-rgb:      14, 14, 16;
-  --bg-elev:     #161618;
-  --bg-elev-rgb: 22, 22, 24;
-  --bg-side:     #131316;
-  --bg-side-rgb: 19, 19, 22;
+  --bg:          #0b0c14;
+  --bg-rgb:      11, 12, 20;
+  --bg-elev:     #151725;
+  --bg-elev-rgb: 21, 23, 37;
+  --bg-side:     #0e1019;
+  --bg-side-rgb: 14, 16, 25;
   --bg-hover:    rgba(255, 255, 255, 0.05);
   --bg-active:   rgba(255, 255, 255, 0.08);
-  --border:      rgba(255, 255, 255, 0.07);
-  --border-strong: rgba(255, 255, 255, 0.14);
-  --text:        #ececee;
-  --text-mid:    #a5a5ad;
-  --text-soft:   #75757d;
-  --text-faint:  #52525a;
-  --accent:      #8b95f0;
-  --accent-soft: rgba(139, 149, 240, 0.14);
+  --border:      rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.16);
+  --text:        #eceef6;
+  --text-mid:    #a2a6b8;
+  --text-soft:   #787d91;
+  --text-faint:  #4e5364;
+  --accent:      #6b74e0;
+  --accent-soft: rgba(107, 116, 224, 0.16);
 }
 
 /* ── Hub shell ────────────────────────────────────────────── */
@@ -364,8 +364,15 @@ html, body {
 .hub-provider-pill .px {
   width: 14px; height: 14px; border-radius: 4px; flex-shrink: 0;
 }
+.hub-qp-key {
+  margin-left: auto;
+  font-family: var(--mono); font-size: 10.5px;
+  color: var(--text-faint); padding: 2px 6px;
+  border: 1px solid var(--border); border-radius: 4px;
+  background: var(--bg);
+}
 .hub-qp-send {
-  margin-left: auto; background: var(--accent); color: #fff;
+  margin-left: 6px; background: var(--accent); color: #fff;
   width: 30px; height: 30px; border: 0; border-radius: 7px;
   display: flex; align-items: center; justify-content: center; cursor: default;
 }
@@ -394,6 +401,17 @@ html, body {
 }
 .hub-section-title .more:hover { color: var(--text); }
 .hub-empty { margin: 0; padding: 14px 12px; font-size: 12.5px; color: var(--text-soft); }
+
+.hub-foot-hint {
+  margin: 26px 0 0; text-align: center;
+  font-size: 11.5px; color: var(--text-faint);
+}
+.hub-foot-hint kbd {
+  font-family: var(--mono); font-size: 10px;
+  padding: 1px 5px; border-radius: 4px;
+  background: var(--bg-elev); border: 1px solid var(--border);
+  color: var(--text-soft);
+}
 
 .hub-recent-list { display: flex; flex-direction: column; gap: 1px; padding: 6px; }
 .hub-recent-item {

@@ -118,6 +118,7 @@
             {p.label}
           </button>
         {/each}
+        <span class="hub-qp-key">⌘↵</span>
         <button
           class="hub-qp-send"
           disabled={!draft.trim()}
@@ -223,5 +224,7 @@
         </div>
       </section>
     </div>
+
+    <p class="hub-foot-hint">Tekan <kbd>⌘K</kbd> untuk beralih halaman · <kbd>⌘1–7</kbd> lompat langsung</p>
   </div>
 </div>

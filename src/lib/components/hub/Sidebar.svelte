@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from 'svelte'
   import { getVersion } from '@tauri-apps/api/app'
   import { icons } from './icons'
   import { settings } from '$lib/stores/settings.svelte'
@@ -15,16 +16,81 @@
     getVersion().then(v => appVersion = v)
   })
 
-  const navMain = { id: 'dashboard', label: 'Dasbor', icon: 'dashboard' as const, kbd: '⌘1' }
-  const navCopilot = { id: 'copilot', label: 'Copilot', icon: 'dashboard' as const, kbd: '⌘6' }
-  const navAssistants = [
-    { id: 'gpt',       label: 'ChatGPT',    kbd: '⌘2', src: 'gpt' },
-    { id: 'claude',    label: 'Claude',     kbd: '⌘3', src: 'claude' },
-    { id: 'translate', label: 'Terjemahan', kbd: '⌘4', src: 'translate' },
-    { id: 'chat',      label: 'Obrolan AI', kbd: '⌘5', src: 'native' },
+  interface NavItem {
+    id: string
+    label: string
+    kbd: string
+    icon?: keyof typeof icons | 'copilot'
+    src?: 'gpt' | 'claude' | 'translate' | 'native'
+    badge?: string
+  }
+  interface NavGroup { label: string; items: NavItem[] }
+
+  const navGroups: NavGroup[] = [
+    {
+      label: 'Umum',
+      items: [
+        { id: 'dashboard', label: 'Dasbor',  icon: 'dashboard', kbd: '⌘1' },
+        { id: 'copilot',   label: 'Copilot', icon: 'copilot',   kbd: '⌘6', badge: 'Beta' },
+      ],
+    },
+    {
+      label: 'Asisten',
+      items: [
+        { id: 'gpt',       label: 'ChatGPT',    kbd: '⌘2', src: 'gpt' },
+        { id: 'claude',    label: 'Claude',     kbd: '⌘3', src: 'claude' },
+        { id: 'translate', label: 'Terjemahan', kbd: '⌘4', src: 'translate' },
+        { id: 'chat',      label: 'Obrolan AI', kbd: '⌘5', src: 'native' },
+      ],
+    },
+    {
+      label: 'Alat',
+      items: [
+        { id: 'markdown', label: 'Baca Markdown', icon: 'fileText', kbd: '⌘7' },
+      ],
+    },
+    {
+      label: 'Sistem',
+      items: [
+        { id: 'settings', label: 'Pengaturan', icon: 'settings', kbd: '⌘,' },
+      ],
+    },
   ]
-  const navMarkdown = { id: 'markdown', label: 'Baca Markdown', icon: 'fileText' as const, kbd: '⌘7' }
-  const navSettings = { id: 'settings', label: 'Pengaturan', icon: 'settings' as const, kbd: '⌘,' }
+
+  const allItems = navGroups.flatMap(g => g.items)
+
+  // ── ⌘K quick-switch: filter nav, Enter picks first match ──
+  let query = $state('')
+  let searchEl = $state<HTMLInputElement | null>(null)
+
+  const matches = $derived(
+    query.trim()
+      ? allItems.filter(i => i.label.toLowerCase().includes(query.trim().toLowerCase()))
+      : allItems,
+  )
+
+  onMount(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault()
+        searchEl?.focus()
+        searchEl?.select()
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  })
+
+  function onSearchKeydown(e: KeyboardEvent) {
+    if (e.key === 'Enter' && matches.length) {
+      onNav(matches[0].id)
+      query = ''
+      searchEl?.blur()
+    } else if (e.key === 'Escape') {
+      query = ''
+      searchEl?.blur()
+    }
+  }
 </script>
 
 <aside class="hub-sidebar">
@@ -36,105 +102,96 @@
     <div class="hub-brand-sub">{appVersion ? `v${appVersion}` : '...'}</div>
   </div>
 
-  <!-- Navigasi -->
-  <div class="hub-section-label">Navigasi</div>
-  <div class="hub-nav-list">
-    <div
-      class="hub-nav-item {current === navMain.id ? 'active' : ''}"
-      onclick={() => onNav(navMain.id)}
-      role="button" tabindex="0"
-      onkeydown={(e) => e.key === 'Enter' && onNav(navMain.id)}
-    >
-      <span class="ic">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
-             stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
-          {@html icons[navMain.icon]}
-        </svg>
-      </span>
-      <span>{navMain.label}</span>
-      <span class="kbd">{navMain.kbd}</span>
+  <!-- Quick switch -->
+  <div class="hub-search-wrap">
+    <div class="hub-search" class:focused={query}>
+      <svg class="hub-search-ic" width="13" height="13" viewBox="0 0 24 24" fill="none"
+           stroke="currentColor" stroke-width="2" stroke-linecap="round">
+        <circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/>
+      </svg>
+      <input
+        bind:this={searchEl}
+        bind:value={query}
+        onkeydown={onSearchKeydown}
+        class="hub-search-input"
+        type="text"
+        placeholder="Cari…"
+        spellcheck="false"
+      />
+      <span class="kbd">⌘K</span>
     </div>
   </div>
 
-  <!-- Copilot -->
-  <div class="hub-section-label">Copilot (Beta)</div>
-  <div class="hub-nav-list">
-    <div
-      class="hub-nav-item {current === navCopilot.id ? 'active' : ''}"
-      onclick={() => onNav(navCopilot.id)}
-      role="button" tabindex="0"
-      onkeydown={(e) => e.key === 'Enter' && onNav(navCopilot.id)}
-    >
-      <span class="ic">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
-             stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
-          <circle cx="12" cy="12" r="3" />
-          <path d="M12 1v6m0 10v6m11-11h-6M7 12H1" />
-        </svg>
-      </span>
-      <span>{navCopilot.label}</span>
-      <span class="kbd">{navCopilot.kbd}</span>
+  {#if query.trim()}
+    <!-- Hasil quick-switch: daftar flat, tanpa grup -->
+    <div class="hub-nav-list hub-search-results">
+      {#each matches as item (item.id)}
+        <div
+          class="hub-nav-item"
+          onclick={() => { onNav(item.id); query = '' }}
+          role="button" tabindex="0"
+          onkeydown={(e) => e.key === 'Enter' && (onNav(item.id), query = '')}
+        >
+          <span class="nav-ic">
+            {#if item.src}
+              <span class="src-dot {item.src}"></span>
+            {:else}
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
+                   stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+                {#if item.icon === 'copilot'}
+                  <circle cx="12" cy="12" r="3" />
+                  <path d="M12 1v6m0 10v6m11-11h-6M7 12H1" />
+                {:else if item.icon}
+                  {@html icons[item.icon]}
+                {/if}
+              </svg>
+            {/if}
+          </span>
+          <span>{item.label}</span>
+          <span class="kbd">{item.kbd}</span>
+        </div>
+      {:else}
+        <div class="hub-search-empty">Tidak ada hasil</div>
+      {/each}
     </div>
-  </div>
-
-  <!-- Alat -->
-  <div class="hub-section-label">Alat</div>
-  <div class="hub-nav-list">
-    <div
-      class="hub-nav-item {current === navMarkdown.id ? 'active' : ''}"
-      onclick={() => onNav(navMarkdown.id)}
-      role="button" tabindex="0"
-      onkeydown={(e) => e.key === 'Enter' && onNav(navMarkdown.id)}
-    >
-      <span class="ic">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
-             stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
-          {@html icons[navMarkdown.icon]}
-        </svg>
-      </span>
-      <span>{navMarkdown.label}</span>
-      <span class="kbd">{navMarkdown.kbd}</span>
-    </div>
-  </div>
-
-  <!-- Asisten -->
-  <div class="hub-section-label">Asisten</div>
-  <div class="hub-nav-list">
-    {#each navAssistants as item}
-      <div
-        class="hub-nav-item {current === item.id ? 'active' : ''}"
-        onclick={() => onNav(item.id)}
-        role="button" tabindex="0"
-        onkeydown={(e) => e.key === 'Enter' && onNav(item.id)}
-      >
-        <span class="src-dot {item.src}"></span>
-        <span>{item.label}</span>
-        <span class="kbd">{item.kbd}</span>
+  {:else}
+    {#each navGroups as group (group.label)}
+      <div class="hub-section-label">{group.label}</div>
+      <div class="hub-nav-list">
+        {#each group.items as item (item.id)}
+          <div
+            class="hub-nav-item {current === item.id ? 'active' : ''}"
+            onclick={() => onNav(item.id)}
+            role="button" tabindex="0"
+            onkeydown={(e) => e.key === 'Enter' && onNav(item.id)}
+          >
+            <span class="nav-ic">
+              {#if item.src}
+                <span class="src-dot {item.src}"></span>
+              {:else}
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
+                     stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+                  {#if item.icon === 'copilot'}
+                    <circle cx="12" cy="12" r="3" />
+                    <path d="M12 1v6m0 10v6m11-11h-6M7 12H1" />
+                  {:else if item.icon}
+                    {@html icons[item.icon]}
+                  {/if}
+                </svg>
+              {/if}
+            </span>
+            <span>{item.label}</span>
+            {#if item.badge}
+              <span class="nav-badge">{item.badge}</span>
+            {/if}
+            <span class="kbd">{item.kbd}</span>
+          </div>
+        {/each}
       </div>
     {/each}
-  </div>
+  {/if}
 
   <div class="spacer"></div>
-
-  <!-- Sistem -->
-  <div class="hub-section-label">Sistem</div>
-  <div class="hub-nav-list">
-    <div
-      class="hub-nav-item {current === navSettings.id ? 'active' : ''}"
-      onclick={() => onNav(navSettings.id)}
-      role="button" tabindex="0"
-      onkeydown={(e) => e.key === 'Enter' && onNav(navSettings.id)}
-    >
-      <span class="ic">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
-             stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-          {@html icons[navSettings.icon]}
-        </svg>
-      </span>
-      <span>{navSettings.label}</span>
-      <span class="kbd">{navSettings.kbd}</span>
-    </div>
-  </div>
 
   <!-- User card -->
   <div class="hub-user-card">
@@ -154,4 +211,46 @@
     -webkit-app-region: drag;
   }
   .spacer { flex: 1; }
+
+  .hub-search-wrap { padding: 0 10px 10px; }
+  .hub-search {
+    display: flex; align-items: center; gap: 7px;
+    padding: 6px 9px; border-radius: 7px;
+    background: var(--bg-elev); border: 1px solid var(--border);
+    color: var(--text-faint);
+    transition: border-color .1s;
+  }
+  .hub-search:focus-within {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-soft);
+  }
+  .hub-search-ic { flex-shrink: 0; }
+  .hub-search-input {
+    flex: 1; min-width: 0;
+    background: transparent; border: 0; outline: none;
+    font-family: inherit; font-size: 12.5px; color: var(--text);
+  }
+  .hub-search-input::placeholder { color: var(--text-faint); }
+  .hub-search .kbd {
+    font-family: var(--mono); font-size: 10px;
+    color: var(--text-faint); padding: 1px 5px;
+    border: 1px solid var(--border); border-radius: 4px;
+    background: var(--bg);
+  }
+  .hub-search-empty {
+    padding: 8px 12px; font-size: 12px; color: var(--text-faint);
+  }
+  .hub-search-results { flex: 1; overflow: auto; }
+
+  .nav-ic {
+    width: 16px; height: 16px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    opacity: .85;
+  }
+  .hub-nav-item.active .nav-ic { opacity: 1; color: var(--accent); }
+  .nav-badge {
+    font-size: 9.5px; font-weight: 600; letter-spacing: .04em;
+    padding: 1.5px 6px; border-radius: 999px;
+    background: var(--accent-soft); color: var(--accent);
+  }
 </style>

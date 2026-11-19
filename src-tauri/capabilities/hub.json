@@ -2,7 +2,9 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "hub",
   "description": "Capabilities for the hub (main app) window",
-  "windows": ["ai-view"],
+  "windows": [
+    "ai-view"
+  ],
   "permissions": [
     "core:default",
     "core:window:allow-start-dragging",
@@ -16,6 +18,8 @@
     "core:window:allow-close",
     "core:window:allow-is-maximized",
     "autostart:default",
-    "dialog:default"
+    "dialog:default",
+    "updater:default",
+    "process:allow-restart"
   ]
 }

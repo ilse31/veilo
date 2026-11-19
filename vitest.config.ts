@@ -12,7 +12,7 @@ export default defineConfig({
     conditions: ['browser'],
   },
   test: {
-    exclude: [...configDefaults.exclude, '**/.kilo/**', '**/.worktrees/**'],
+    exclude: [...configDefaults.exclude, '**/.kilo/**', '**/.worktrees/**', '**/.claude/**'],
     environment: 'jsdom',
     alias: {
       '$lib': resolve(__dirname, './src/lib'),

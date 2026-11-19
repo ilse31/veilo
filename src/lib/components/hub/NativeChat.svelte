@@ -230,25 +230,21 @@
       </button>
     </div>
 
-    {#if convList.length > 0}
+    {#if selectedIds.length > 0}
       <div class="bulk-actions">
-        <label>
-          <input type="checkbox" aria-label="Pilih semua obrolan"
-            checked={selectedIds.length === convList.length}
-            indeterminate={selectedIds.length > 0 && selectedIds.length < convList.length}
-            disabled={deleting || streaming}
-            onchange={(e) => selectedIds = e.currentTarget.checked ? convList.map(c => c.id) : []} />
-          Pilih semua
-        </label>
-        <button class="hub-btn secondary" disabled={selectedIds.length === 0 || deleting || streaming}
+        <span class="sel-count">{selectedIds.length} dipilih</span>
+        <button class="bulk-link" disabled={deleting || streaming}
+          onclick={() => selectedIds = selectedIds.length === convList.length ? [] : convList.map(c => c.id)}>
+          {selectedIds.length === convList.length ? 'Batal pilih' : 'Pilih semua'}
+        </button>
+        <button class="bulk-link danger" disabled={deleting || streaming}
           onclick={() => removeConversations([...selectedIds])}>
-          Hapus pilihan ({selectedIds.length})
+          Hapus
         </button>
-        <button class="hub-btn secondary" disabled={deleting || streaming}
-          onclick={() => removeConversations(convList.map(c => c.id))}>
-          {deleting ? 'Menghapus…' : 'Hapus semua'}
+        <button class="bulk-link" disabled={deleting || streaming} onclick={() => selectedIds = []}>
+          Batal
         </button>
-        {#if streaming}<span>Tunggu respons selesai untuk menghapus obrolan.</span>{/if}
+        {#if streaming}<span class="sel-note">Tunggu respons selesai</span>{/if}
       </div>
     {/if}
     {#if deleteError}<p class="delete-error" role="alert">{deleteError}</p>{/if}
@@ -264,11 +260,10 @@
             role="button" tabindex="0"
             onkeydown={(e) => e.target === e.currentTarget && e.key === 'Enter' && selectConv(c.id)}
           >
-            <label class="conv-selection">
+            <label class="conv-selection" class:shown={selectedIds.length > 0}>
               <input type="checkbox" aria-label={`Pilih obrolan ${c.title}`}
                 checked={selectedIds.includes(c.id)} disabled={deleting || streaming}
                 onchange={() => toggleSelection(c.id)} />
-              <span>Pilih</span>
             </label>
             <div class="t">{c.title}</div>
             <div class="conv-meta">
@@ -298,7 +293,7 @@
   <div class="hub-chat-main">
     {#if msgs.length === 0 && !streaming}
       <div class="hub-chat-empty">
-        <div class="glyph">N</div>
+        <img class="glyph" src="/veilo.svg" alt="" />
         <div class="ttl">Mulai obrolan baru</div>
         <div class="sub">Pakai model {model} via endpoint kamu sendiri. Streaming aktif.</div>
         <div class="starter-row">
@@ -314,7 +309,7 @@
       <div class="hub-chat-msgs" bind:this={scrollEl}>
         {#each msgs as m}
           <div class="hub-msg {m.role}">
-            <div class="av">{m.role === 'user' ? displayName[0].toUpperCase() : 'N'}</div>
+            <div class="av">{m.role === 'user' ? displayName[0].toUpperCase() : 'V'}</div>
             <div>
               <div class="role">{m.role === 'user' ? displayName : `AI Lokal · ${model}`}</div>
               {#if m.role === 'assistant'}
@@ -327,7 +322,7 @@
         {/each}
         {#if streaming && activeConvId === streamConvId}
           <div class="hub-msg assistant">
-            <div class="av">N</div>
+            <div class="av">V</div>
             <div>
               <div class="role">AI Lokal · {model}</div>
               <div class="body md">{@html renderMd(streamBuf)}<span class="hub-cursor-blink"></span></div>
@@ -377,9 +372,28 @@
 </div>
 
 <style>
-  .bulk-actions { display: flex; flex-direction: column; gap: 8px; padding: 10px; font-size: 12px; }
-  .bulk-actions label, .conv-selection { display: flex; align-items: center; gap: 6px; }
-  .conv-selection { font-size: 11px; margin-bottom: 5px; color: var(--text-soft); }
+  .bulk-actions {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 12px; font-size: 11.5px;
+    border-bottom: 1px solid var(--border);
+    background: var(--accent-soft);
+  }
+  .sel-count { color: var(--text); font-weight: 500; margin-right: auto; }
+  .sel-note { color: var(--text-faint); font-size: 10.5px; }
+  .bulk-link {
+    background: none; border: 0; padding: 2px 6px;
+    font-family: inherit; font-size: 11.5px; color: var(--accent);
+    cursor: default; border-radius: 4px;
+  }
+  .bulk-link:hover { background: var(--bg-hover); color: var(--text); }
+  .bulk-link.danger { color: var(--red); }
+  .bulk-link:disabled { opacity: .45; }
+
+  .conv-selection {
+    display: none; align-items: center;
+    margin-bottom: 4px;
+  }
+  .conv:hover .conv-selection, .conv-selection.shown { display: flex; }
   .delete-error { padding: 10px; font-size: 12px; color: var(--red); }
 
   .empty-hist {

@@ -27,10 +27,10 @@
 </script>
 
 <div class="ob-wrap">
-  <div class="ob-card hub-card">
-    <div class="ob-logo">N</div>
-    <h2 class="ob-title">Halo! Siapa namamu?</h2>
-    <p class="ob-sub">Kami akan menyapamu setiap kali membuka Veilo.</p>
+  <div class="ob-card">
+    <img class="ob-logo" src="/veilo.svg" alt="Veilo" width="56" height="56" />
+    <h2 class="ob-title">Selamat datang di Veilo</h2>
+    <p class="ob-sub">Teman AI yang tenang — terlihat olehmu, tersembunyi dari screen capture. Siapa namamu?</p>
 
     <form class="ob-form" onsubmit={handleSubmit}>
       <input
@@ -41,6 +41,13 @@
         maxlength={60}
         autofocus
       />
+      <p class="ob-hint">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none"
+             stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 2l8 3.5v5.2c0 5-3.4 9.6-8 11.3-4.6-1.7-8-6.3-8-11.3V5.5L12 2z"/>
+        </svg>
+        Disimpan lokal di perangkat kamu
+      </p>
       {#if error}
         <p class="ob-error">{error}</p>
       {/if}
@@ -48,35 +55,37 @@
         {saving ? 'Menyimpan…' : 'Mulai →'}
       </button>
     </form>
-
-    <p class="ob-note">Disimpan lokal di perangkat kamu — tidak dikirim ke mana pun.</p>
   </div>
+
+  <p class="ob-foot">Tekan <kbd>Ctrl+Shift+Space</kbd> kapan saja untuk membuka Veilo</p>
 </div>
 
 <style>
   .ob-wrap {
     width: 100vw; height: 100vh;
-    display: flex; align-items: center; justify-content: center;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 18px;
     background: var(--bg);
     font-family: 'Onest', -apple-system, system-ui, sans-serif;
   }
 
   .ob-card {
-    width: 380px;
+    width: 400px;
     display: flex; flex-direction: column; align-items: center;
     gap: 10px;
-    padding: 36px 32px 28px;
+    padding: 40px 36px 32px;
     text-align: center;
-    box-shadow: 0 4px 24px rgba(0,0,0,.06), 0 1px 3px rgba(0,0,0,.05);
+    background: var(--bg-elev);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    box-shadow: 0 8px 32px rgba(0,0,0,.18);
   }
 
   .ob-logo {
-    width: 40px; height: 40px; border-radius: 11px;
-    background: linear-gradient(135deg, var(--accent) 0%, #8a96f0 100%);
-    color: #fff; font-weight: 700; font-size: 18px;
-    display: flex; align-items: center; justify-content: center;
-    box-shadow: 0 4px 12px rgba(94,106,210,.35);
-    margin-bottom: 6px;
+    width: 56px; height: 56px; border-radius: 14px;
+    box-shadow: 0 6px 18px rgba(91,100,214,.35);
+    margin-bottom: 8px;
   }
 
   .ob-title {
@@ -86,7 +95,7 @@
 
   .ob-sub {
     font-size: 13px; color: var(--text-soft);
-    margin: 0 0 8px; line-height: 1.5;
+    margin: 0 0 10px; line-height: 1.55;
   }
 
   .ob-form {
@@ -98,6 +107,11 @@
     text-align: center;
     font-size: 15px;
     padding: 10px 14px;
+  }
+
+  .ob-hint {
+    display: flex; align-items: center; justify-content: center; gap: 5px;
+    font-size: 11.5px; color: var(--text-faint); margin: 0;
   }
 
   .ob-error {
@@ -113,8 +127,13 @@
   }
   .ob-btn:disabled { opacity: 0.5; cursor: default; }
 
-  .ob-note {
-    font-size: 11px; color: var(--text-faint);
-    margin: 4px 0 0; line-height: 1.4;
+  .ob-foot {
+    font-size: 11.5px; color: var(--text-faint); margin: 0;
+  }
+  .ob-foot kbd {
+    font-family: var(--mono); font-size: 10.5px;
+    padding: 2px 6px; border-radius: 4px;
+    background: var(--bg-elev); border: 1px solid var(--border);
+    color: var(--text-soft);
   }
 </style>

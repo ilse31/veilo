@@ -23,7 +23,7 @@ afterEach(cleanup)
 it('deletes only checked conversations', async () => {
   render(NativeChat)
   await fireEvent.click(await screen.findByRole('checkbox', { name: 'Pilih obrolan Pertama' }))
-  await fireEvent.click(screen.getByRole('button', { name: 'Hapus pilihan (1)' }))
+  await fireEvent.click(screen.getByRole('button', { name: 'Hapus' }))
   await waitFor(() => expect(screen.queryByText('Pertama')).toBeNull())
   expect(screen.getByText('Kedua')).toBeTruthy()
   expect(deleteConversation).toHaveBeenCalledExactlyOnceWith(1)
@@ -31,9 +31,10 @@ it('deletes only checked conversations', async () => {
 
 it('selects all and deletes the entire list', async () => {
   render(NativeChat)
-  await fireEvent.click(await screen.findByRole('checkbox', { name: 'Pilih semua obrolan' }))
-  expect(screen.getByRole('button', { name: 'Hapus pilihan (2)' })).toBeTruthy()
-  await fireEvent.click(screen.getByRole('button', { name: 'Hapus semua' }))
+  await fireEvent.click(await screen.findByRole('checkbox', { name: 'Pilih obrolan Pertama' }))
+  await fireEvent.click(screen.getByRole('button', { name: 'Pilih semua' }))
+  expect(screen.getByText('2 dipilih')).toBeTruthy()
+  await fireEvent.click(screen.getByRole('button', { name: 'Hapus' }))
   expect(await screen.findByText('Belum ada obrolan')).toBeTruthy()
   expect(deleteConversation).toHaveBeenCalledTimes(2)
 })
@@ -41,7 +42,9 @@ it('selects all and deletes the entire list', async () => {
 it('keeps failed deletions visible and reports the error', async () => {
   vi.mocked(deleteConversation).mockRejectedValue(new Error('database error'))
   render(NativeChat)
-  await fireEvent.click(await screen.findByRole('button', { name: 'Hapus semua' }))
+  await fireEvent.click(await screen.findByRole('checkbox', { name: 'Pilih obrolan Pertama' }))
+  await fireEvent.click(screen.getByRole('button', { name: 'Pilih semua' }))
+  await fireEvent.click(screen.getByRole('button', { name: 'Hapus' }))
   expect(await screen.findByRole('alert')).toBeTruthy()
   expect(screen.getByText('Pertama')).toBeTruthy()
   expect(screen.getByText('Kedua')).toBeTruthy()

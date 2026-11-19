@@ -11,6 +11,7 @@
   import Onboarding from './hub/Onboarding.svelte'
   import GhostTypingBar from './hub/GhostTypingBar.svelte'
   import { getConfig, getProfileName, injectToService, getProfileValue } from '$lib/tauri'
+  import { autoCheckUpdate } from '$lib/updater'
   import { settings } from '$lib/stores/settings.svelte'
   import { parseOverrides } from '$lib/vision'
   import CopilotPanel from './copilot/CopilotPanel.svelte'
@@ -115,6 +116,7 @@
         page = 'onboarding'
       }
     } catch {}
+    autoCheckUpdate()
   })
 
   // Poll copilot session status every 3s

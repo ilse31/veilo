@@ -1,11 +1,19 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
   <defs>
-    <linearGradient id="background" x1="0" y1="0" x2="1" y2="1">
-      <stop stop-color="#5e6ad2" />
-      <stop offset="1" stop-color="#8a96f0" />
+    <linearGradient id="background" x1="0.2" y1="0.1" x2="0.85" y2="0.95">
+      <stop stop-color="#5B64D6" />
+      <stop offset="1" stop-color="#14163A" />
     </linearGradient>
   </defs>
-  <rect width="1024" height="1024" rx="256" fill="url(#background)" />
-  <path d="M200 260H380L604 764H424Z" fill="#fff" fill-opacity=".55" />
-  <path d="M644 260H824L604 764H424Z" fill="#fff" fill-opacity=".92" />
+  <rect width="1024" height="1024" rx="230" fill="url(#background)" />
+  <!-- ghost echo: V bergeser (−34,−20), opacity 55% -->
+  <g fill="#EDEFFD" opacity="0.55">
+    <path d="M228 270H356L540 754H416Z" />
+    <path d="M728 270H600L416 754H540Z" />
+  </g>
+  <!-- V utama -->
+  <g fill="#EDEFFD">
+    <path d="M262 290H390L574 774H450Z" />
+    <path d="M762 290H634L450 774H574Z" />
+  </g>
 </svg>
