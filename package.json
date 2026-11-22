@@ -1,6 +1,6 @@
 {
   "name": "veilo",
-  "version": "1.5.5",
+  "version": "1.5.6",
   "description": "Veilo — Your quiet AI companion.",
   "type": "module",
   "scripts": {
@@ -15,7 +15,7 @@
   },
   "license": "MIT",
   "dependencies": {
-    "@tauri-apps/api": "^2",
+    "@tauri-apps/api": "^2.12.5",
     "@tauri-apps/plugin-dialog": "^2.7.2",
     "@tauri-apps/plugin-opener": "^2",
     "@tauri-apps/plugin-process": "^2.4.0",

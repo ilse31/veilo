@@ -1,5 +1,19 @@
 # Changelog
 
+## v1.5.6
+
+### Added
+- **Auto-update.** The app checks GitHub Releases on launch and offers to install newer versions in place.
+
+### Changed
+- **New app icon.** Regenerated ghost-V logo across all platforms.
+- Updated `@tauri-apps/api` to match the Tauri 2.12.7 runtime.
+
+## v1.5.5
+
+### Fixed
+- Copilot code blocks now wrap long lines instead of requiring horizontal scrolling in narrow windows.
+
 ## v1.5.4
 
 ### Improved
